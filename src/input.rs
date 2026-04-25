@@ -255,9 +255,17 @@ mod tests {
     }
 
     #[test]
-    fn menu_enter_on_infinite_mode_goes_to_column_options() {
+    fn menu_enter_on_progressive_mode_starts_progressive() {
         let mut app = App::new();
         app.menu_selection = 0;
+        handle_menu_key(&mut app, KeyCode::Enter);
+        assert!(matches!(app.state, AppState::InProgress));
+    }
+
+    #[test]
+    fn menu_enter_on_infinite_mode_goes_to_column_options() {
+        let mut app = App::new();
+        app.menu_selection = 2;
         handle_menu_key(&mut app, KeyCode::Enter);
         assert!(matches!(app.state, AppState::ColumnOptions));
     }

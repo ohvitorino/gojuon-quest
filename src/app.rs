@@ -201,13 +201,13 @@ impl App {
 
     pub(crate) fn select_mode(&self) -> GameMode {
         if self.menu_selection == 0 {
-            return GameMode::Infinite;
+            return GameMode::Progressive;
         }
         if self.menu_selection == 1 {
             return GameMode::BestOf(20);
         }
         if self.menu_selection == 2 {
-            return GameMode::Progressive;
+            return GameMode::Infinite;
         }
 
         GameMode::Infinite
@@ -638,11 +638,11 @@ mod tests {
     fn select_mode_maps_menu_selections() {
         let mut app = App::new();
         app.menu_selection = 0;
-        assert!(matches!(app.select_mode(), GameMode::Infinite));
+        assert!(matches!(app.select_mode(), GameMode::Progressive));
         app.menu_selection = 1;
         assert!(matches!(app.select_mode(), GameMode::BestOf(20)));
         app.menu_selection = 2;
-        assert!(matches!(app.select_mode(), GameMode::Progressive));
+        assert!(matches!(app.select_mode(), GameMode::Infinite));
         app.menu_selection = 99;
         assert!(matches!(app.select_mode(), GameMode::Infinite));
     }

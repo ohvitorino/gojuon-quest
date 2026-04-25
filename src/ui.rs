@@ -249,9 +249,9 @@ fn render_menu(frame: &mut Frame, app: &App) {
         .split(body[0]);
 
     let mode_cards = [
-        ("Infinite", "Endless reps, free pace"),
-        ("Best of 20", "Focused sprint session"),
         ("Progressive", "Unlock columns by mastery"),
+        ("Best of 20", "Focused sprint session"),
+        ("Infinite", "Endless reps, free pace"),
     ];
     for (idx, area) in left.iter().take(3).enumerate() {
         let selected = app.menu_selection == idx;
@@ -315,7 +315,7 @@ fn render_menu(frame: &mut Frame, app: &App) {
             Style::default().fg(Color::Gray),
         )),
     ])
-    .block(Block::default().borders(Borders::ALL).title("Style"));
+    .block(Block::default().borders(Borders::ALL));
     frame.render_widget(render_card, left[3]);
 
     let mut side_lines = vec![
