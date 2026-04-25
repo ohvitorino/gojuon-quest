@@ -44,8 +44,8 @@ For Infinite and Best of 20, you can choose which columns are active:
 ### Run in development
 
 ```bash
-git clone <your-repo-url>
-cd gojuon-quest
+git clone git@gitlab.com:ohvitorino/japanese.git
+cd japanese
 cargo run
 ```
 
@@ -53,7 +53,7 @@ cargo run
 
 ```bash
 cargo build --release
-./target/release/japanese_tui
+./target/release/gojuon-quest
 ```
 
 ## ⌨️ Controls
@@ -68,8 +68,8 @@ cargo build --release
 ### Column selection screen
 
 - `↑` / `↓` or `j` / `k`: move between columns/actions
-- `s` or `Enter` / `Space`: toggle selected column
-- `Enter` / `Space` on Start: begin game
+- `Enter` / `Space` on a column: toggle it on or off
+- `s` or `Enter` / `Space` on Start: begin game
 - `Esc`: return to menu
 
 ### During quiz
@@ -77,6 +77,11 @@ cargo build --release
 - Type romaji characters
 - `Backspace`: delete one character
 - `Enter`: submit answer
+- `Esc`: return to menu
+
+### Feedback screen
+
+- `Enter` / `Space`: advance to next kana
 - `Esc`: return to menu
 
 ## 🌸 Contributing
@@ -94,7 +99,6 @@ Great contribution ideas:
 - Add katakana mode or mixed kana drills
 - Add configurable quiz lengths and difficulty presets
 - Improve cross-platform font/render behavior
-- Add tests around game logic and mode progression
 
 ---
 

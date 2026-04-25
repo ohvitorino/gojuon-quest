@@ -308,3 +308,353 @@ impl App {
             })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn app_for_answer(index: usize, answer: &str) -> App {
+        let mut app = App::new();
+        app.current_index = index;
+        app.input = answer.to_string();
+        app
+    }
+
+    #[test]
+    fn new_app_defaults() {
+        let app = App::new();
+        assert!(app.running);
+        assert!(matches!(app.state, AppState::Menu));
+        assert!(matches!(app.mode, GameMode::Infinite));
+        assert!(matches!(app.render_style, RenderStyle::Ascii));
+        assert_eq!(app.correct, 0);
+        assert_eq!(app.incorrect, 0);
+        assert_eq!(app.streak, 0);
+        assert_eq!(app.max_streak, 0);
+        assert!(app.input.is_empty());
+        assert!(app.deck.is_empty());
+    }
+
+    #[test]
+    fn allowed_indices_all_columns_returns_all_46() {
+        let app = App::new();
+        assert_eq!(app.allowed_indices().len(), 46);
+    }
+
+    #[test]
+    fn allowed_indices_no_columns_returns_empty() {
+        let mut app = App::new();
+        app.selected_columns = [false; 10];
+        assert!(app.allowed_indices().is_empty());
+    }
+
+    #[test]
+    fn allowed_indices_single_column_returns_that_group() {
+        let mut app = App::new();
+        app.selected_columns = [false; 10];
+        app.selected_columns[0] = true;
+        assert_eq!(app.allowed_indices(), vec![0, 1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn allowed_indices_progressive_returns_first_n_groups() {
+        let mut app = App::new();
+        app.mode = GameMode::Progressive;
+        app.progressive_unlocked_columns = 2;
+        let indices = app.allowed_indices();
+        let expected: Vec<usize> = (0..10).collect();
+        assert_eq!(indices, expected);
+    }
+
+    #[test]
+    fn column_of_maps_indices_to_correct_groups() {
+        let app = App::new();
+        assert_eq!(app.column_of(0), 0);
+        assert_eq!(app.column_of(4), 0);
+        assert_eq!(app.column_of(5), 1);
+        assert_eq!(app.column_of(45), 9);
+    }
+
+    #[test]
+    fn accuracy_is_zero_with_no_answers() {
+        let app = App::new();
+        assert_eq!(app.accuracy(), 0.0);
+    }
+
+    #[test]
+    fn accuracy_calculates_correct_percentage() {
+        let mut app = App::new();
+        app.correct = 3;
+        app.incorrect = 1;
+        assert_eq!(app.accuracy(), 75.0);
+    }
+
+    #[test]
+    fn accuracy_at_100_percent() {
+        let mut app = App::new();
+        app.correct = 5;
+        assert_eq!(app.accuracy(), 100.0);
+    }
+
+    #[test]
+    fn is_column_mastered_false_when_insufficient() {
+        let app = App::new();
+        assert!(!app.is_column_mastered(0));
+    }
+
+    #[test]
+    fn is_column_mastered_true_when_all_counts_at_least_3() {
+        let mut app = App::new();
+        for i in 0..5 {
+            app.kana_correct_counts[i] = 3;
+        }
+        assert!(app.is_column_mastered(0));
+    }
+
+    #[test]
+    fn is_column_mastered_false_when_one_short() {
+        let mut app = App::new();
+        for i in 0..4 {
+            app.kana_correct_counts[i] = 3;
+        }
+        app.kana_correct_counts[4] = 2;
+        assert!(!app.is_column_mastered(0));
+    }
+
+    #[test]
+    fn column_progress_sums_counts_capped_at_3() {
+        let mut app = App::new();
+        app.kana_correct_counts[0] = 3;
+        app.kana_correct_counts[1] = 5; // capped to 3
+        app.kana_correct_counts[2] = 1;
+        // indices 3, 4 stay at 0
+        assert_eq!(app.column_progress(0), 7);
+    }
+
+    #[test]
+    fn reached_mode_limit_infinite_never() {
+        let mut app = App::new();
+        app.correct = 1_000_000;
+        assert!(!app.reached_mode_limit());
+    }
+
+    #[test]
+    fn reached_mode_limit_best_of_triggers_at_limit() {
+        let mut app = App::new();
+        app.mode = GameMode::BestOf(20);
+        app.correct = 15;
+        app.incorrect = 5;
+        assert!(app.reached_mode_limit());
+    }
+
+    #[test]
+    fn reached_mode_limit_best_of_not_triggered_before_limit() {
+        let mut app = App::new();
+        app.mode = GameMode::BestOf(20);
+        app.correct = 10;
+        app.incorrect = 5;
+        assert!(!app.reached_mode_limit());
+    }
+
+    #[test]
+    fn evaluate_correct_answer_increments_stats() {
+        let mut app = app_for_answer(0, "a");
+        app.evaluate_current_answer();
+        assert_eq!(app.correct, 1);
+        assert_eq!(app.incorrect, 0);
+        assert_eq!(app.streak, 1);
+        assert_eq!(app.max_streak, 1);
+        assert_eq!(app.kana_correct_counts[0], 1);
+        assert_eq!(app.last_correct, Some(true));
+        assert!(app.input.is_empty());
+        assert!(matches!(app.state, AppState::ShowingFeedback));
+    }
+
+    #[test]
+    fn evaluate_incorrect_answer_increments_stats() {
+        let mut app = app_for_answer(0, "wrong");
+        app.evaluate_current_answer();
+        assert_eq!(app.correct, 0);
+        assert_eq!(app.incorrect, 1);
+        assert_eq!(app.streak, 0);
+        assert_eq!(app.last_correct, Some(false));
+        assert!(matches!(app.state, AppState::ShowingFeedback));
+    }
+
+    #[test]
+    fn evaluate_trims_and_lowercases_input() {
+        let mut app = app_for_answer(0, "  A  ");
+        app.evaluate_current_answer();
+        assert_eq!(app.correct, 1);
+    }
+
+    #[test]
+    fn streak_resets_on_incorrect() {
+        let mut app = app_for_answer(0, "a");
+        app.evaluate_current_answer();
+        assert_eq!(app.streak, 1);
+
+        app.current_index = 0;
+        app.input = "wrong".to_string();
+        app.evaluate_current_answer();
+        assert_eq!(app.streak, 0);
+        assert_eq!(app.max_streak, 1);
+    }
+
+    #[test]
+    fn max_streak_tracks_peak() {
+        let mut app = App::new();
+        for _ in 0..3 {
+            app.current_index = 0;
+            app.input = "a".to_string();
+            app.evaluate_current_answer();
+        }
+        assert_eq!(app.streak, 3);
+        assert_eq!(app.max_streak, 3);
+
+        app.current_index = 0;
+        app.input = "wrong".to_string();
+        app.evaluate_current_answer();
+        assert_eq!(app.streak, 0);
+        assert_eq!(app.max_streak, 3);
+    }
+
+    #[test]
+    fn evaluate_triggers_finished_when_best_of_limit_reached() {
+        let mut app = app_for_answer(0, "a");
+        app.mode = GameMode::BestOf(1);
+        app.evaluate_current_answer();
+        assert!(matches!(app.state, AppState::Finished));
+    }
+
+    #[test]
+    fn kana_correct_count_caps_at_3() {
+        let mut app = app_for_answer(0, "a");
+        app.kana_correct_counts[0] = 3;
+        app.evaluate_current_answer();
+        assert_eq!(app.kana_correct_counts[0], 3);
+    }
+
+    #[test]
+    fn refill_deck_contains_all_allowed_indices() {
+        let mut app = App::new();
+        app.refill_deck();
+        let mut deck = app.deck.clone();
+        deck.sort_unstable();
+        assert_eq!(deck, (0..46).collect::<Vec<_>>());
+        assert_eq!(app.deck_position, 0);
+    }
+
+    #[test]
+    fn refill_deck_single_column_contains_only_that_group() {
+        let mut app = App::new();
+        app.selected_columns = [false; 10];
+        app.selected_columns[1] = true;
+        app.refill_deck();
+        let mut deck = app.deck.clone();
+        deck.sort_unstable();
+        assert_eq!(deck, vec![5, 6, 7, 8, 9]);
+    }
+
+    #[test]
+    fn advance_prompt_sets_current_index_and_increments_position() {
+        let mut app = App::new();
+        app.selected_columns = [false; 10];
+        app.selected_columns[0] = true;
+        app.refill_deck();
+        let first = app.deck[0];
+        app.advance_prompt();
+        assert_eq!(app.current_index, first);
+        assert_eq!(app.deck_position, 1);
+    }
+
+    #[test]
+    fn advance_prompt_refills_when_deck_exhausted() {
+        let mut app = App::new();
+        app.selected_columns = [false; 10];
+        app.selected_columns[0] = true;
+        app.refill_deck();
+        app.deck_position = 5;
+        app.advance_prompt();
+        assert_eq!(app.deck_position, 1);
+        assert_eq!(app.deck.len(), 5);
+    }
+
+    #[test]
+    fn toggle_render_style_switches_between_ascii_and_braille() {
+        let mut app = App::new();
+        assert_eq!(app.render_style_label(), "Ascii");
+        app.toggle_render_style();
+        assert_eq!(app.render_style_label(), "Braille");
+        app.toggle_render_style();
+        assert_eq!(app.render_style_label(), "Ascii");
+    }
+
+    #[test]
+    fn select_mode_maps_menu_selections() {
+        let mut app = App::new();
+        app.menu_selection = 0;
+        assert!(matches!(app.select_mode(), GameMode::Infinite));
+        app.menu_selection = 1;
+        assert!(matches!(app.select_mode(), GameMode::BestOf(20)));
+        app.menu_selection = 2;
+        assert!(matches!(app.select_mode(), GameMode::Progressive));
+        app.menu_selection = 99;
+        assert!(matches!(app.select_mode(), GameMode::Infinite));
+    }
+
+    #[test]
+    fn hardest_column_none_when_no_attempts() {
+        let app = App::new();
+        assert!(app.hardest_column().is_none());
+    }
+
+    #[test]
+    fn hardest_column_single_column_with_attempts() {
+        let mut app = App::new();
+        app.column_attempts[2] = 5;
+        app.column_correct[2] = 2;
+        assert_eq!(app.hardest_column(), Some(2));
+    }
+
+    #[test]
+    fn hardest_column_returns_lowest_accuracy_column() {
+        let mut app = App::new();
+        app.column_attempts[0] = 5;
+        app.column_correct[0] = 4; // 80%
+        app.column_attempts[1] = 5;
+        app.column_correct[1] = 1; // 20%
+        assert_eq!(app.hardest_column(), Some(1));
+    }
+
+    #[test]
+    fn start_selected_mode_resets_and_enters_in_progress() {
+        let mut app = App::new();
+        app.correct = 10;
+        app.incorrect = 5;
+        app.start_selected_mode();
+        assert_eq!(app.correct, 0);
+        assert_eq!(app.incorrect, 0);
+        assert!(app.input.is_empty());
+        assert!(matches!(app.state, AppState::InProgress));
+        assert!(!app.deck.is_empty());
+    }
+
+    #[test]
+    fn start_selected_mode_empty_deck_goes_to_column_options() {
+        let mut app = App::new();
+        app.selected_columns = [false; 10];
+        app.start_selected_mode();
+        assert!(matches!(app.state, AppState::ColumnOptions));
+        assert!(app.options_feedback.is_some());
+    }
+
+    #[test]
+    fn start_progressive_mode_unlocks_first_column_only() {
+        let mut app = App::new();
+        app.start_progressive_mode();
+        assert_eq!(app.progressive_unlocked_columns, 1);
+        assert!(matches!(app.state, AppState::InProgress));
+        assert!(app.current_index < 5);
+    }
+}

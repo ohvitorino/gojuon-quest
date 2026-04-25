@@ -61,3 +61,51 @@ pub(crate) const COLUMN_INDEX_GROUPS: [&[usize]; 10] = [
     &[38, 39, 40, 41, 42],
     &[43, 44, 45],
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hiragana_has_46_entries() {
+        assert_eq!(HIRAGANA_BASIC_46.len(), 46);
+    }
+
+    #[test]
+    fn column_labels_has_10_entries() {
+        assert_eq!(COLUMN_LABELS.len(), 10);
+    }
+
+    #[test]
+    fn column_index_groups_has_10_entries() {
+        assert_eq!(COLUMN_INDEX_GROUPS.len(), 10);
+    }
+
+    #[test]
+    fn column_index_groups_cover_all_46_indices_exactly_once() {
+        let mut all_indices: Vec<usize> = COLUMN_INDEX_GROUPS
+            .iter()
+            .flat_map(|g| g.iter().copied())
+            .collect();
+        all_indices.sort_unstable();
+        assert_eq!(all_indices, (0..46).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn all_group_indices_within_bounds() {
+        for group in COLUMN_INDEX_GROUPS.iter() {
+            for &idx in *group {
+                assert!(idx < HIRAGANA_BASIC_46.len());
+            }
+        }
+    }
+
+    #[test]
+    fn irregular_romaji_mappings_are_correct() {
+        assert_eq!(HIRAGANA_BASIC_46[11], ("し", "shi"));
+        assert_eq!(HIRAGANA_BASIC_46[16], ("ち", "chi"));
+        assert_eq!(HIRAGANA_BASIC_46[17], ("つ", "tsu"));
+        assert_eq!(HIRAGANA_BASIC_46[27], ("ふ", "fu"));
+        assert_eq!(HIRAGANA_BASIC_46[45], ("ん", "n"));
+    }
+}
