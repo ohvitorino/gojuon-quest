@@ -3,6 +3,10 @@
 Sharpen your hiragana reading in a cozy terminal quiz game with a little matsuri vibe.
 Type the romaji for each kana, build streaks, and climb toward mastery one column at a time. 🍵
 
+## 📸 Screenshot
+
+![Gojuon Quest app screenshot](assets/app-screenshot.png)
+
 ## ✨ What this is
 
 This project is a Rust terminal quiz game focused on **hiragana recognition**.
