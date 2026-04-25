@@ -160,6 +160,7 @@ const COLUMN_INDEX_GROUPS: [&[usize]; 10] = [
 enum GameMode {
     Infinite,
     BestOf(u32),
+    Progressive,
 }
 
 enum RenderStyle {
@@ -172,6 +173,7 @@ enum AppState {
     ColumnOptions,
     InProgress,
     ShowingFeedback,
+    ColumnUnlocked,
     Finished,
 }
 
@@ -192,6 +194,14 @@ struct App {
     deck: Vec<usize>,
     deck_position: usize,
     current_index: usize,
+    kana_correct_counts: [u32; 46],
+    progressive_unlocked_columns: usize,
+    streak: u32,
+    max_streak: u32,
+    column_attempts: [u32; 10],
+    column_correct: [u32; 10],
+    questions_to_unlock: [Option<u32>; 10],
+    newly_unlocked_column: Option<usize>,
 }
 
 impl App {
@@ -213,6 +223,14 @@ impl App {
             deck: Vec::new(),
             deck_position: 0,
             current_index: 0,
+            kana_correct_counts: [0; 46],
+            progressive_unlocked_columns: 1,
+            streak: 0,
+            max_streak: 0,
+            column_attempts: [0; 10],
+            column_correct: [0; 10],
+            questions_to_unlock: [None; 10],
+            newly_unlocked_column: None,
         }
     }
 
@@ -223,6 +241,14 @@ impl App {
     }
 
     fn allowed_indices(&self) -> Vec<usize> {
+        if matches!(self.mode, GameMode::Progressive) {
+            return COLUMN_INDEX_GROUPS
+                .iter()
+                .take(self.progressive_unlocked_columns)
+                .flat_map(|group| group.iter().copied())
+                .collect();
+        }
+
         let mut indices = Vec::new();
         for (column, enabled) in self.selected_columns.iter().enumerate() {
             if !enabled {
@@ -255,12 +281,21 @@ impl App {
         let shown = self.current_hiragana().to_string();
         let typed = self.input.trim().to_ascii_lowercase();
         let is_correct = typed == expected;
+        let answered_column = self.column_of(self.current_index);
+
+        self.column_attempts[answered_column] += 1;
 
         if is_correct {
             self.correct += 1;
+            self.column_correct[answered_column] += 1;
+            self.kana_correct_counts[self.current_index] =
+                (self.kana_correct_counts[self.current_index] + 1).min(3);
+            self.streak += 1;
+            self.max_streak = self.max_streak.max(self.streak);
             self.last_feedback = Some(format!("Correct: {} → {}", shown, expected));
         } else {
             self.incorrect += 1;
+            self.streak = 0;
             self.last_feedback = Some(format!(
                 "Incorrect: {} expected '{}', got '{}'",
                 shown, expected, typed
@@ -275,6 +310,24 @@ impl App {
             return;
         }
 
+        if matches!(self.mode, GameMode::Progressive)
+            && self.progressive_unlocked_columns > 0
+            && self.is_column_mastered(self.progressive_unlocked_columns - 1)
+        {
+            let mastered_column = self.progressive_unlocked_columns - 1;
+            self.questions_to_unlock[mastered_column] = Some(self.correct + self.incorrect);
+            if self.progressive_unlocked_columns < COLUMN_LABELS.len() {
+                self.newly_unlocked_column = Some(self.progressive_unlocked_columns);
+                self.progressive_unlocked_columns += 1;
+                self.refill_deck();
+                self.state = AppState::ColumnUnlocked;
+                return;
+            }
+
+            self.state = AppState::Finished;
+            return;
+        }
+
         self.state = AppState::ShowingFeedback;
     }
 
@@ -283,6 +336,8 @@ impl App {
         match self.mode {
             GameMode::Infinite => false,
             GameMode::BestOf(limit) => answered >= limit,
+            GameMode::Progressive => self.progressive_unlocked_columns >= COLUMN_LABELS.len()
+                && self.is_column_mastered(COLUMN_LABELS.len() - 1),
         }
     }
 
@@ -290,8 +345,14 @@ impl App {
         if self.menu_selection == 0 {
             return GameMode::Infinite;
         }
+        if self.menu_selection == 1 {
+            return GameMode::BestOf(20);
+        }
+        if self.menu_selection == 2 {
+            return GameMode::Progressive;
+        }
 
-        GameMode::BestOf(20)
+        GameMode::Infinite
     }
 
     fn render_style_label(&self) -> &'static str {
@@ -310,9 +371,37 @@ impl App {
 
     fn prepare_selected_mode(&mut self) {
         self.mode = self.select_mode();
+        if matches!(self.mode, GameMode::Progressive) {
+            self.start_progressive_mode();
+            return;
+        }
         self.options_selection = 0;
         self.options_feedback = None;
         self.state = AppState::ColumnOptions;
+    }
+
+    fn start_progressive_mode(&mut self) {
+        self.state = AppState::InProgress;
+        self.input.clear();
+        self.correct = 0;
+        self.incorrect = 0;
+        self.last_feedback = None;
+        self.last_correct = None;
+        self.kana_correct_counts = [0; 46];
+        self.progressive_unlocked_columns = 1;
+        self.streak = 0;
+        self.max_streak = 0;
+        self.column_attempts = [0; 10];
+        self.column_correct = [0; 10];
+        self.questions_to_unlock = [None; 10];
+        self.newly_unlocked_column = None;
+        self.refill_deck();
+        if self.deck.is_empty() {
+            self.state = AppState::Menu;
+            return;
+        }
+        self.current_index = self.deck[0];
+        self.deck_position = 1;
     }
 
     fn start_selected_mode(&mut self) {
@@ -339,6 +428,37 @@ impl App {
         }
 
         (self.correct as f64 / total as f64) * 100.0
+    }
+
+    fn column_of(&self, index: usize) -> usize {
+        COLUMN_INDEX_GROUPS
+            .iter()
+            .position(|group| group.contains(&index))
+            .unwrap_or(0)
+    }
+
+    fn is_column_mastered(&self, column: usize) -> bool {
+        COLUMN_INDEX_GROUPS[column]
+            .iter()
+            .all(|index| self.kana_correct_counts[*index] >= 3)
+    }
+
+    fn column_progress(&self, column: usize) -> u32 {
+        COLUMN_INDEX_GROUPS[column]
+            .iter()
+            .map(|index| self.kana_correct_counts[*index].min(3))
+            .sum()
+    }
+
+    fn hardest_column(&self) -> Option<usize> {
+        (0..COLUMN_LABELS.len())
+            .filter(|column| self.column_attempts[*column] > 0)
+            .min_by(|a, b| {
+                let left = self.column_correct[*a] as u64 * self.column_attempts[*b] as u64;
+                let right = self.column_correct[*b] as u64 * self.column_attempts[*a] as u64;
+                left.cmp(&right)
+                    .then_with(|| self.column_attempts[*b].cmp(&self.column_attempts[*a]))
+            })
     }
 }
 
@@ -381,6 +501,7 @@ fn run_app(terminal: &mut Terminal<ratatui::backend::CrosstermBackend<io::Stdout
             AppState::ColumnOptions => handle_column_options_key(&mut app, key.code),
             AppState::InProgress => handle_in_progress_key(&mut app, key.code),
             AppState::ShowingFeedback => handle_showing_feedback_key(&mut app, key.code),
+            AppState::ColumnUnlocked => handle_column_unlocked_key(&mut app, key.code),
             AppState::Finished => handle_finished_key(&mut app, key.code),
         }
     }
@@ -417,14 +538,14 @@ fn handle_menu_key(app: &mut App, code: KeyCode) {
     match code {
         KeyCode::Esc => app.running = false,
         KeyCode::Up | KeyCode::Char('k') => app.menu_selection = app.menu_selection.saturating_sub(1),
-        KeyCode::Down | KeyCode::Char('j') => app.menu_selection = (app.menu_selection + 1).min(2),
+        KeyCode::Down | KeyCode::Char('j') => app.menu_selection = (app.menu_selection + 1).min(3),
         KeyCode::Left | KeyCode::Right => {
-            if app.menu_selection == 2 {
+            if app.menu_selection == 3 {
                 app.toggle_render_style();
             }
         }
         KeyCode::Enter => {
-            if app.menu_selection == 2 {
+            if app.menu_selection == 3 {
                 app.toggle_render_style();
                 return;
             }
@@ -479,11 +600,32 @@ fn handle_finished_key(app: &mut App, code: KeyCode) {
     }
 }
 
+fn handle_column_unlocked_key(app: &mut App, code: KeyCode) {
+    match code {
+        KeyCode::Esc => app.state = AppState::Menu,
+        KeyCode::Enter | KeyCode::Char(' ') => {
+            app.newly_unlocked_column = None;
+            app.advance_prompt();
+            app.last_feedback = None;
+            app.last_correct = None;
+            app.state = AppState::InProgress;
+        }
+        _ => {}
+    }
+}
+
 fn ui(frame: &mut Frame, app: &mut App) {
     match app.state {
         AppState::Menu => render_menu(frame, app),
         AppState::ColumnOptions => render_column_options(frame, app),
-        AppState::InProgress | AppState::ShowingFeedback => render_game_screen(frame, app),
+        AppState::InProgress | AppState::ShowingFeedback => {
+            if matches!(app.mode, GameMode::Progressive) {
+                render_progressive_game_screen(frame, app);
+            } else {
+                render_game_screen(frame, app);
+            }
+        }
+        AppState::ColumnUnlocked => render_column_unlocked(frame, app),
         AppState::Finished => render_finished(frame, app),
     }
 }
@@ -503,7 +645,14 @@ fn render_menu(frame: &mut Frame, app: &App) {
     } else {
         Style::default()
     };
-    let render_style_style = if app.menu_selection == 2 {
+    let progressive_style = if app.menu_selection == 2 {
+        Style::default()
+            .fg(Color::Yellow)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default()
+    };
+    let render_style_style = if app.menu_selection == 3 {
         Style::default()
             .fg(Color::Yellow)
             .add_modifier(Modifier::BOLD)
@@ -523,6 +672,10 @@ fn render_menu(frame: &mut Frame, app: &App) {
         ]),
         Line::from(vec![
             Span::raw(if app.menu_selection == 2 { "> " } else { "  " }),
+            Span::styled("Progressive", progressive_style),
+        ]),
+        Line::from(vec![
+            Span::raw(if app.menu_selection == 3 { "> " } else { "  " }),
             Span::styled(
                 format!("Render: {}", app.render_style_label()),
                 render_style_style,
@@ -648,6 +801,7 @@ fn render_game_screen(frame: &mut Frame, app: &mut App) {
     let score_text = match app.mode {
         GameMode::Infinite => format!("{}/{}", app.correct, app.incorrect),
         GameMode::BestOf(limit) => format!("{}/{}", app.correct + app.incorrect, limit),
+        GameMode::Progressive => format!("{}/{}", app.correct, app.incorrect),
     };
     let score = Paragraph::new(score_text).alignment(Alignment::Right);
     frame.render_widget(score, top_bar[1]);
@@ -706,6 +860,134 @@ fn render_game_screen(frame: &mut Frame, app: &mut App) {
         .alignment(Alignment::Center)
         .style(Style::default().add_modifier(Modifier::DIM));
     frame.render_widget(controls, layout[5]);
+}
+
+fn render_progressive_game_screen(frame: &mut Frame, app: &mut App) {
+    let showing_feedback = matches!(app.state, AppState::ShowingFeedback);
+    let layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Min(6),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+        ])
+        .split(frame.area());
+
+    let progress_chunks = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints(vec![Constraint::Ratio(1, COLUMN_LABELS.len() as u32); COLUMN_LABELS.len()])
+        .split(layout[0]);
+    for (column, area) in progress_chunks.iter().enumerate() {
+        let total = (COLUMN_INDEX_GROUPS[column].len() * 3) as u32;
+        let progress = app.column_progress(column);
+        let text = if app.is_column_mastered(column) {
+            format!("{} ✓", COLUMN_LABELS[column])
+        } else if column == app.progressive_unlocked_columns.saturating_sub(1) {
+            format!("{} {}/{}", COLUMN_LABELS[column], progress, total)
+        } else if column < app.progressive_unlocked_columns {
+            format!("{} ..", COLUMN_LABELS[column])
+        } else {
+            format!("{} ···", COLUMN_LABELS[column])
+        };
+        let style = if column == app.progressive_unlocked_columns.saturating_sub(1) {
+            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().add_modifier(Modifier::DIM)
+        };
+        frame.render_widget(Paragraph::new(text).style(style), *area);
+    }
+
+    let active_column = app.progressive_unlocked_columns.saturating_sub(1);
+    let mastery_line = COLUMN_INDEX_GROUPS[active_column]
+        .iter()
+        .map(|index| {
+            let (kana, _) = HIRAGANA_BASIC_46[*index];
+            let dots = (0..3)
+                .map(|dot| {
+                    if dot < app.kana_correct_counts[*index].min(3) as usize {
+                        '●'
+                    } else {
+                        '○'
+                    }
+                })
+                .collect::<String>();
+            format!("{kana}{dots}")
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+    frame.render_widget(Paragraph::new(mastery_line).alignment(Alignment::Center), layout[1]);
+
+    let glyph_row = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage(35),
+            Constraint::Percentage(30),
+            Constraint::Percentage(35),
+        ])
+        .split(layout[2]);
+    let glyph_col = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Percentage(10),
+            Constraint::Percentage(80),
+            Constraint::Percentage(10),
+        ])
+        .split(glyph_row[1]);
+    match app.render_style {
+        RenderStyle::Braille => render_hiragana_pixel_art(frame, app.current_hiragana(), glyph_col[1]),
+        RenderStyle::Ascii => render_hiragana_ascii_art(frame, app.current_hiragana(), glyph_col[1]),
+    }
+
+    frame.render_widget(Paragraph::new(app.input.as_str()).alignment(Alignment::Center), layout[3]);
+
+    let feedback_color = match app.last_correct {
+        Some(true) => Color::Green,
+        Some(false) => Color::Red,
+        None => Color::Reset,
+    };
+    let feedback_style = if showing_feedback {
+        Style::default().fg(feedback_color).add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().add_modifier(Modifier::DIM)
+    };
+    let feedback_text = app
+        .last_feedback
+        .as_deref()
+        .unwrap_or("Type romaji and press Enter");
+    frame.render_widget(
+        Paragraph::new(feedback_text)
+            .alignment(Alignment::Center)
+            .style(feedback_style),
+        layout[4],
+    );
+
+    let total = app.correct + app.incorrect;
+    let status_text = if showing_feedback {
+        format!(
+            "Streak: {}  Max: {}  |  Accuracy: {:.1}%  |  Total: {}  |  Enter/Space: next  Esc: finish session",
+            app.streak,
+            app.max_streak,
+            app.accuracy(),
+            total
+        )
+    } else {
+        format!(
+            "Streak: {}  Max: {}  |  Accuracy: {:.1}%  |  Total: {}  |  Enter: evaluate  Backspace: delete  Esc: finish session",
+            app.streak,
+            app.max_streak,
+            app.accuracy(),
+            total
+        )
+    };
+    frame.render_widget(
+        Paragraph::new(status_text)
+            .alignment(Alignment::Center)
+            .style(Style::default().add_modifier(Modifier::DIM)),
+        layout[5],
+    );
 }
 
 fn render_hiragana_ascii_art(frame: &mut Frame, hiragana: &str, area: ratatui::layout::Rect) {
@@ -811,6 +1093,46 @@ fn render_hiragana_ascii_art(frame: &mut Frame, hiragana: &str, area: ratatui::l
 }
 
 fn render_finished(frame: &mut Frame, app: &App) {
+    if matches!(app.mode, GameMode::Progressive) {
+        let total = app.correct + app.incorrect;
+        let hardest = app
+            .hardest_column()
+            .map(|column| {
+                let attempts = app.column_attempts[column];
+                let correct = app.column_correct[column];
+                let accuracy = if attempts == 0 {
+                    0.0
+                } else {
+                    (correct as f64 / attempts as f64) * 100.0
+                };
+                format!("{} ({:.1}%)", COLUMN_LABELS[column], accuracy)
+            })
+            .unwrap_or_else(|| "N/A".to_string());
+        let avg_questions = if COLUMN_LABELS.is_empty() {
+            0.0
+        } else {
+            total as f64 / COLUMN_LABELS.len() as f64
+        };
+        let summary = format!(
+            "Session Finished\n\nMode: Progressive\nColumns mastered: {}/{}\nCorrect: {}\nIncorrect: {}\nTotal: {}\nAccuracy: {:.1}%\nBest streak: {}\nAvg questions per column: {:.1}\nHardest column: {}\n\nPress Esc or Enter to exit.",
+            app.progressive_unlocked_columns.min(COLUMN_LABELS.len()),
+            COLUMN_LABELS.len(),
+            app.correct,
+            app.incorrect,
+            total,
+            app.accuracy(),
+            app.max_streak,
+            avg_questions,
+            hardest
+        );
+
+        let block = Paragraph::new(summary)
+            .alignment(Alignment::Center)
+            .block(Block::default().title("Final Results").borders(Borders::ALL));
+        frame.render_widget(block, frame.area());
+        return;
+    }
+
     let total = app.correct + app.incorrect;
     let summary = format!(
         "Session Finished\n\nCorrect: {}\nIncorrect: {}\nTotal: {}\nAccuracy: {:.1}%\n\nPress Esc or Enter to exit.",
@@ -824,4 +1146,49 @@ fn render_finished(frame: &mut Frame, app: &App) {
         .alignment(Alignment::Center)
         .block(Block::default().title("Final Results").borders(Borders::ALL));
     frame.render_widget(block, frame.area());
+}
+
+fn render_column_unlocked(frame: &mut Frame, app: &App) {
+    let Some(column) = app.newly_unlocked_column else {
+        return;
+    };
+    let kana = COLUMN_INDEX_GROUPS[column]
+        .iter()
+        .map(|index| HIRAGANA_BASIC_46[*index].0)
+        .collect::<Vec<_>>()
+        .join(" ");
+    let questions = app.correct + app.incorrect;
+    let mastered = column;
+    let body = format!(
+        "Column Unlocked!\n\n{}-row ({})\nadded to your deck\n\nColumns mastered: {} / {}\nQuestions so far: {}\nSession accuracy: {:.1}%\n\nPress Enter to continue",
+        COLUMN_LABELS[column],
+        kana,
+        mastered,
+        COLUMN_LABELS.len(),
+        questions,
+        app.accuracy()
+    );
+
+    let row = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage(20),
+            Constraint::Percentage(60),
+            Constraint::Percentage(20),
+        ])
+        .split(frame.area());
+    let col = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Percentage(25),
+            Constraint::Percentage(50),
+            Constraint::Percentage(25),
+        ])
+        .split(row[1]);
+    frame.render_widget(
+        Paragraph::new(body)
+            .alignment(Alignment::Center)
+            .block(Block::default().title("Progressive").borders(Borders::ALL)),
+        col[1],
+    );
 }
