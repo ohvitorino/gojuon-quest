@@ -180,7 +180,7 @@ fn render_hiragana_ascii_art(frame: &mut Frame, hiragana: &str, area: ratatui::l
     frame.render_widget(art, area);
 }
 
-pub fn ui(frame: &mut Frame, app: &mut App) {
+pub(crate) fn ui(frame: &mut Frame, app: &mut App) {
     match app.state {
         AppState::Menu => render_menu(frame, app),
         AppState::ColumnOptions => render_column_options(frame, app),

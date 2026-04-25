@@ -1,4 +1,4 @@
-pub const HIRAGANA_BASIC_46: [(&str, &str); 46] = [
+pub(crate) const HIRAGANA_BASIC_46: [(&str, &str); 46] = [
     ("あ", "a"),
     ("い", "i"),
     ("う", "u"),
@@ -47,9 +47,9 @@ pub const HIRAGANA_BASIC_46: [(&str, &str); 46] = [
     ("ん", "n"),
 ];
 
-pub const COLUMN_LABELS: [&str; 10] = ["Vowels", "K", "S", "T", "N", "H", "M", "Y", "R", "W"];
+pub(crate) const COLUMN_LABELS: [&str; 10] = ["Vowels", "K", "S", "T", "N", "H", "M", "Y", "R", "W"];
 
-pub const COLUMN_INDEX_GROUPS: [&[usize]; 10] = [
+pub(crate) const COLUMN_INDEX_GROUPS: [&[usize]; 10] = [
     &[0, 1, 2, 3, 4],
     &[5, 6, 7, 8, 9],
     &[10, 11, 12, 13, 14],

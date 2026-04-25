@@ -2,18 +2,18 @@ use rand::seq::SliceRandom;
 
 use crate::kana::{COLUMN_INDEX_GROUPS, COLUMN_LABELS, HIRAGANA_BASIC_46};
 
-pub enum GameMode {
+pub(crate) enum GameMode {
     Infinite,
     BestOf(u32),
     Progressive,
 }
 
-pub enum RenderStyle {
+pub(crate) enum RenderStyle {
     Braille,
     Ascii,
 }
 
-pub enum AppState {
+pub(crate) enum AppState {
     Menu,
     ColumnOptions,
     InProgress,
@@ -22,35 +22,35 @@ pub enum AppState {
     Finished,
 }
 
-pub struct App {
-    pub running: bool,
-    pub state: AppState,
-    pub mode: GameMode,
-    pub render_style: RenderStyle,
-    pub menu_selection: usize,
-    pub selected_columns: [bool; 10],
-    pub options_selection: usize,
-    pub options_feedback: Option<String>,
-    pub input: String,
-    pub correct: u32,
-    pub incorrect: u32,
-    pub last_feedback: Option<String>,
-    pub last_correct: Option<bool>,
-    pub deck: Vec<usize>,
-    pub deck_position: usize,
-    pub current_index: usize,
-    pub kana_correct_counts: [u32; 46],
-    pub progressive_unlocked_columns: usize,
-    pub streak: u32,
-    pub max_streak: u32,
-    pub column_attempts: [u32; 10],
-    pub column_correct: [u32; 10],
-    pub questions_to_unlock: [Option<u32>; 10],
-    pub newly_unlocked_column: Option<usize>,
+pub(crate) struct App {
+    pub(crate) running: bool,
+    pub(crate) state: AppState,
+    pub(crate) mode: GameMode,
+    pub(crate) render_style: RenderStyle,
+    pub(crate) menu_selection: usize,
+    pub(crate) selected_columns: [bool; 10],
+    pub(crate) options_selection: usize,
+    pub(crate) options_feedback: Option<String>,
+    pub(crate) input: String,
+    pub(crate) correct: u32,
+    pub(crate) incorrect: u32,
+    pub(crate) last_feedback: Option<String>,
+    pub(crate) last_correct: Option<bool>,
+    pub(crate) deck: Vec<usize>,
+    pub(crate) deck_position: usize,
+    pub(crate) current_index: usize,
+    pub(crate) kana_correct_counts: [u32; 46],
+    pub(crate) progressive_unlocked_columns: usize,
+    pub(crate) streak: u32,
+    pub(crate) max_streak: u32,
+    pub(crate) column_attempts: [u32; 10],
+    pub(crate) column_correct: [u32; 10],
+    pub(crate) questions_to_unlock: [Option<u32>; 10],
+    pub(crate) newly_unlocked_column: Option<usize>,
 }
 
 impl App {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             running: true,
             state: AppState::Menu,
@@ -79,13 +79,13 @@ impl App {
         }
     }
 
-    pub fn refill_deck(&mut self) {
+    pub(crate) fn refill_deck(&mut self) {
         self.deck = self.allowed_indices();
         self.deck.shuffle(&mut rand::rng());
         self.deck_position = 0;
     }
 
-    pub fn allowed_indices(&self) -> Vec<usize> {
+    pub(crate) fn allowed_indices(&self) -> Vec<usize> {
         if matches!(self.mode, GameMode::Progressive) {
             return COLUMN_INDEX_GROUPS
                 .iter()
@@ -104,15 +104,15 @@ impl App {
         indices
     }
 
-    pub fn expected_romaji(&self) -> &str {
+    pub(crate) fn expected_romaji(&self) -> &str {
         HIRAGANA_BASIC_46[self.current_index].1
     }
 
-    pub fn current_hiragana(&self) -> &str {
+    pub(crate) fn current_hiragana(&self) -> &str {
         HIRAGANA_BASIC_46[self.current_index].0
     }
 
-    pub fn advance_prompt(&mut self) {
+    pub(crate) fn advance_prompt(&mut self) {
         if self.deck_position >= self.deck.len() {
             self.refill_deck();
         }
@@ -121,7 +121,7 @@ impl App {
         self.deck_position += 1;
     }
 
-    pub fn evaluate_current_answer(&mut self) {
+    pub(crate) fn evaluate_current_answer(&mut self) {
         let expected = self.expected_romaji().to_string();
         let shown = self.current_hiragana().to_string();
         let typed = self.input.trim().to_ascii_lowercase();
@@ -176,7 +176,7 @@ impl App {
         self.state = AppState::ShowingFeedback;
     }
 
-    pub fn reached_mode_limit(&self) -> bool {
+    pub(crate) fn reached_mode_limit(&self) -> bool {
         let answered = self.correct + self.incorrect;
         match self.mode {
             GameMode::Infinite => false,
@@ -188,7 +188,7 @@ impl App {
         }
     }
 
-    pub fn select_mode(&self) -> GameMode {
+    pub(crate) fn select_mode(&self) -> GameMode {
         if self.menu_selection == 0 {
             return GameMode::Infinite;
         }
@@ -202,21 +202,21 @@ impl App {
         GameMode::Infinite
     }
 
-    pub fn render_style_label(&self) -> &'static str {
+    pub(crate) fn render_style_label(&self) -> &'static str {
         match self.render_style {
             RenderStyle::Braille => "Braille",
             RenderStyle::Ascii => "Ascii",
         }
     }
 
-    pub fn toggle_render_style(&mut self) {
+    pub(crate) fn toggle_render_style(&mut self) {
         self.render_style = match self.render_style {
             RenderStyle::Braille => RenderStyle::Ascii,
             RenderStyle::Ascii => RenderStyle::Braille,
         };
     }
 
-    pub fn prepare_selected_mode(&mut self) {
+    pub(crate) fn prepare_selected_mode(&mut self) {
         self.mode = self.select_mode();
         if matches!(self.mode, GameMode::Progressive) {
             self.start_progressive_mode();
@@ -227,7 +227,7 @@ impl App {
         self.state = AppState::ColumnOptions;
     }
 
-    pub fn start_progressive_mode(&mut self) {
+    pub(crate) fn start_progressive_mode(&mut self) {
         self.state = AppState::InProgress;
         self.input.clear();
         self.correct = 0;
@@ -251,7 +251,7 @@ impl App {
         self.deck_position = 1;
     }
 
-    pub fn start_selected_mode(&mut self) {
+    pub(crate) fn start_selected_mode(&mut self) {
         self.state = AppState::InProgress;
         self.input.clear();
         self.correct = 0;
@@ -268,7 +268,7 @@ impl App {
         self.deck_position = 1;
     }
 
-    pub fn accuracy(&self) -> f64 {
+    pub(crate) fn accuracy(&self) -> f64 {
         let total = self.correct + self.incorrect;
         if total == 0 {
             return 0.0;
@@ -277,27 +277,27 @@ impl App {
         (self.correct as f64 / total as f64) * 100.0
     }
 
-    pub fn column_of(&self, index: usize) -> usize {
+    pub(crate) fn column_of(&self, index: usize) -> usize {
         COLUMN_INDEX_GROUPS
             .iter()
             .position(|group| group.contains(&index))
             .unwrap_or(0)
     }
 
-    pub fn is_column_mastered(&self, column: usize) -> bool {
+    pub(crate) fn is_column_mastered(&self, column: usize) -> bool {
         COLUMN_INDEX_GROUPS[column]
             .iter()
             .all(|index| self.kana_correct_counts[*index] >= 3)
     }
 
-    pub fn column_progress(&self, column: usize) -> u32 {
+    pub(crate) fn column_progress(&self, column: usize) -> u32 {
         COLUMN_INDEX_GROUPS[column]
             .iter()
             .map(|index| self.kana_correct_counts[*index].min(3))
             .sum()
     }
 
-    pub fn hardest_column(&self) -> Option<usize> {
+    pub(crate) fn hardest_column(&self) -> Option<usize> {
         (0..COLUMN_LABELS.len())
             .filter(|column| self.column_attempts[*column] > 0)
             .min_by(|a, b| {

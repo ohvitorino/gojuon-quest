@@ -3,7 +3,7 @@ use crossterm::event::KeyCode;
 use crate::app::{App, AppState};
 use crate::kana::COLUMN_LABELS;
 
-pub fn handle_in_progress_key(app: &mut App, code: KeyCode) {
+pub(crate) fn handle_in_progress_key(app: &mut App, code: KeyCode) {
     match code {
         KeyCode::Esc => app.state = AppState::Menu,
         KeyCode::Enter => app.evaluate_current_answer(),
@@ -15,7 +15,7 @@ pub fn handle_in_progress_key(app: &mut App, code: KeyCode) {
     }
 }
 
-pub fn handle_showing_feedback_key(app: &mut App, code: KeyCode) {
+pub(crate) fn handle_showing_feedback_key(app: &mut App, code: KeyCode) {
     match code {
         KeyCode::Esc => app.state = AppState::Menu,
         KeyCode::Enter | KeyCode::Char(' ') => {
@@ -28,7 +28,7 @@ pub fn handle_showing_feedback_key(app: &mut App, code: KeyCode) {
     }
 }
 
-pub fn handle_menu_key(app: &mut App, code: KeyCode) {
+pub(crate) fn handle_menu_key(app: &mut App, code: KeyCode) {
     match code {
         KeyCode::Esc => app.running = false,
         KeyCode::Up | KeyCode::Char('k') => app.menu_selection = app.menu_selection.saturating_sub(1),
@@ -49,7 +49,7 @@ pub fn handle_menu_key(app: &mut App, code: KeyCode) {
     }
 }
 
-pub fn handle_column_options_key(app: &mut App, code: KeyCode) {
+pub(crate) fn handle_column_options_key(app: &mut App, code: KeyCode) {
     let last_row = COLUMN_LABELS.len();
     match code {
         KeyCode::Esc => {
@@ -87,14 +87,14 @@ pub fn handle_column_options_key(app: &mut App, code: KeyCode) {
     }
 }
 
-pub fn handle_finished_key(app: &mut App, code: KeyCode) {
+pub(crate) fn handle_finished_key(app: &mut App, code: KeyCode) {
     match code {
         KeyCode::Esc | KeyCode::Enter => app.running = false,
         _ => {}
     }
 }
 
-pub fn handle_column_unlocked_key(app: &mut App, code: KeyCode) {
+pub(crate) fn handle_column_unlocked_key(app: &mut App, code: KeyCode) {
     match code {
         KeyCode::Esc => app.state = AppState::Menu,
         KeyCode::Enter | KeyCode::Char(' ') => {
