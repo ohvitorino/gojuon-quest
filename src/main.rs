@@ -131,6 +131,32 @@ const HIRAGANA_BASIC_46: [(&str, &str); 46] = [
     ("ん", "n"),
 ];
 
+const COLUMN_LABELS: [&str; 10] = [
+    "Vowels",
+    "K",
+    "S",
+    "T",
+    "N",
+    "H",
+    "M",
+    "Y",
+    "R",
+    "W",
+];
+
+const COLUMN_INDEX_GROUPS: [&[usize]; 10] = [
+    &[0, 1, 2, 3, 4],
+    &[5, 6, 7, 8, 9],
+    &[10, 11, 12, 13, 14],
+    &[15, 16, 17, 18, 19],
+    &[20, 21, 22, 23, 24],
+    &[25, 26, 27, 28, 29],
+    &[30, 31, 32, 33, 34],
+    &[35, 36, 37],
+    &[38, 39, 40, 41, 42],
+    &[43, 44, 45],
+];
+
 enum GameMode {
     Infinite,
     BestOf(u32),
@@ -143,6 +169,7 @@ enum RenderStyle {
 
 enum AppState {
     Menu,
+    ColumnOptions,
     InProgress,
     ShowingFeedback,
     Finished,
@@ -154,6 +181,9 @@ struct App {
     mode: GameMode,
     render_style: RenderStyle,
     menu_selection: usize,
+    selected_columns: [bool; 10],
+    options_selection: usize,
+    options_feedback: Option<String>,
     input: String,
     correct: u32,
     incorrect: u32,
@@ -172,6 +202,9 @@ impl App {
             mode: GameMode::Infinite,
             render_style: RenderStyle::Ascii,
             menu_selection: 0,
+            selected_columns: [true; 10],
+            options_selection: 0,
+            options_feedback: None,
             input: String::new(),
             correct: 0,
             incorrect: 0,
@@ -184,9 +217,20 @@ impl App {
     }
 
     fn refill_deck(&mut self) {
-        self.deck = (0..HIRAGANA_BASIC_46.len()).collect();
+        self.deck = self.allowed_indices();
         self.deck.shuffle(&mut rand::rng());
         self.deck_position = 0;
+    }
+
+    fn allowed_indices(&self) -> Vec<usize> {
+        let mut indices = Vec::new();
+        for (column, enabled) in self.selected_columns.iter().enumerate() {
+            if !enabled {
+                continue;
+            }
+            indices.extend_from_slice(COLUMN_INDEX_GROUPS[column]);
+        }
+        indices
     }
 
     fn expected_romaji(&self) -> &str {
@@ -264,8 +308,14 @@ impl App {
         };
     }
 
-    fn start_selected_mode(&mut self) {
+    fn prepare_selected_mode(&mut self) {
         self.mode = self.select_mode();
+        self.options_selection = 0;
+        self.options_feedback = None;
+        self.state = AppState::ColumnOptions;
+    }
+
+    fn start_selected_mode(&mut self) {
         self.state = AppState::InProgress;
         self.input.clear();
         self.correct = 0;
@@ -273,6 +323,11 @@ impl App {
         self.last_feedback = None;
         self.last_correct = None;
         self.refill_deck();
+        if self.deck.is_empty() {
+            self.options_feedback = Some("Enable at least one column to start".to_string());
+            self.state = AppState::ColumnOptions;
+            return;
+        }
         self.current_index = self.deck[0];
         self.deck_position = 1;
     }
@@ -323,6 +378,7 @@ fn run_app(terminal: &mut Terminal<ratatui::backend::CrosstermBackend<io::Stdout
 
         match app.state {
             AppState::Menu => handle_menu_key(&mut app, key.code),
+            AppState::ColumnOptions => handle_column_options_key(&mut app, key.code),
             AppState::InProgress => handle_in_progress_key(&mut app, key.code),
             AppState::ShowingFeedback => handle_showing_feedback_key(&mut app, key.code),
             AppState::Finished => handle_finished_key(&mut app, key.code),
@@ -372,7 +428,45 @@ fn handle_menu_key(app: &mut App, code: KeyCode) {
                 app.toggle_render_style();
                 return;
             }
+            app.prepare_selected_mode();
+        }
+        _ => {}
+    }
+}
+
+fn handle_column_options_key(app: &mut App, code: KeyCode) {
+    let last_row = COLUMN_LABELS.len();
+    match code {
+        KeyCode::Esc => {
+            app.state = AppState::Menu;
+            app.options_feedback = None;
+        }
+        KeyCode::Up | KeyCode::Char('k') => {
+            app.options_selection = app.options_selection.saturating_sub(1);
+        }
+        KeyCode::Down | KeyCode::Char('j') => {
+            app.options_selection = (app.options_selection + 1).min(last_row);
+        }
+        KeyCode::Char('s') => {
+            if app.allowed_indices().is_empty() {
+                app.options_feedback = Some("Enable at least one column to start".to_string());
+                return;
+            }
+            app.options_feedback = None;
             app.start_selected_mode();
+        }
+        KeyCode::Enter | KeyCode::Char(' ') => {
+            if app.options_selection == last_row {
+                if app.allowed_indices().is_empty() {
+                    app.options_feedback = Some("Enable at least one column to start".to_string());
+                    return;
+                }
+                app.options_feedback = None;
+                app.start_selected_mode();
+                return;
+            }
+            app.selected_columns[app.options_selection] = !app.selected_columns[app.options_selection];
+            app.options_feedback = None;
         }
         _ => {}
     }
@@ -388,6 +482,7 @@ fn handle_finished_key(app: &mut App, code: KeyCode) {
 fn ui(frame: &mut Frame, app: &mut App) {
     match app.state {
         AppState::Menu => render_menu(frame, app),
+        AppState::ColumnOptions => render_column_options(frame, app),
         AppState::InProgress | AppState::ShowingFeedback => render_game_screen(frame, app),
         AppState::Finished => render_finished(frame, app),
     }
@@ -461,6 +556,73 @@ fn render_menu(frame: &mut Frame, app: &App) {
         .split(row[1]);
 
     frame.render_widget(menu, col[1]);
+}
+
+fn render_column_options(frame: &mut Frame, app: &App) {
+    let mut lines = vec![
+        Line::from("Select columns for this session"),
+        Line::from(""),
+    ];
+
+    for (idx, label) in COLUMN_LABELS.iter().enumerate() {
+        let marker = if app.options_selection == idx { "> " } else { "  " };
+        let checkbox = if app.selected_columns[idx] { "[x]" } else { "[ ]" };
+        let style = if app.options_selection == idx {
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default()
+        };
+        lines.push(Line::from(vec![
+            Span::raw(marker),
+            Span::styled(format!("{} {}", checkbox, label), style),
+        ]));
+    }
+
+    lines.push(Line::from(""));
+    let start_selected = app.options_selection == COLUMN_LABELS.len();
+    let start_style = if start_selected {
+        Style::default()
+            .fg(Color::Green)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default()
+    };
+    lines.push(Line::from(vec![
+        Span::raw(if start_selected { "> " } else { "  " }),
+        Span::styled("Start", start_style),
+    ]));
+    lines.push(Line::from(""));
+    lines.push(Line::from(
+        app.options_feedback
+            .as_deref()
+            .unwrap_or("Space/Enter: toggle  |  s/Enter on Start: begin  |  Esc: back"),
+    ));
+
+    let block = Paragraph::new(lines)
+        .alignment(Alignment::Left)
+        .block(Block::default().title("Columns").borders(Borders::ALL));
+
+    let row = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage(20),
+            Constraint::Percentage(60),
+            Constraint::Percentage(20),
+        ])
+        .split(frame.area());
+
+    let col = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Percentage(15),
+            Constraint::Percentage(70),
+            Constraint::Percentage(15),
+        ])
+        .split(row[1]);
+
+    frame.render_widget(block, col[1]);
 }
 
 fn render_game_screen(frame: &mut Frame, app: &mut App) {
