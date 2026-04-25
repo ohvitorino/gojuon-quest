@@ -136,6 +136,11 @@ enum GameMode {
     BestOf(u32),
 }
 
+enum RenderStyle {
+    Braille,
+    Ascii,
+}
+
 enum AppState {
     Menu,
     InProgress,
@@ -147,6 +152,7 @@ struct App {
     running: bool,
     state: AppState,
     mode: GameMode,
+    render_style: RenderStyle,
     menu_selection: usize,
     input: String,
     correct: u32,
@@ -164,6 +170,7 @@ impl App {
             running: true,
             state: AppState::Menu,
             mode: GameMode::Infinite,
+            render_style: RenderStyle::Ascii,
             menu_selection: 0,
             input: String::new(),
             correct: 0,
@@ -241,6 +248,20 @@ impl App {
         }
 
         GameMode::BestOf(20)
+    }
+
+    fn render_style_label(&self) -> &'static str {
+        match self.render_style {
+            RenderStyle::Braille => "Braille",
+            RenderStyle::Ascii => "Ascii",
+        }
+    }
+
+    fn toggle_render_style(&mut self) {
+        self.render_style = match self.render_style {
+            RenderStyle::Braille => RenderStyle::Ascii,
+            RenderStyle::Ascii => RenderStyle::Braille,
+        };
     }
 
     fn start_selected_mode(&mut self) {
@@ -340,8 +361,19 @@ fn handle_menu_key(app: &mut App, code: KeyCode) {
     match code {
         KeyCode::Esc => app.running = false,
         KeyCode::Up | KeyCode::Char('k') => app.menu_selection = app.menu_selection.saturating_sub(1),
-        KeyCode::Down | KeyCode::Char('j') => app.menu_selection = (app.menu_selection + 1).min(1),
-        KeyCode::Enter => app.start_selected_mode(),
+        KeyCode::Down | KeyCode::Char('j') => app.menu_selection = (app.menu_selection + 1).min(2),
+        KeyCode::Left | KeyCode::Right => {
+            if app.menu_selection == 2 {
+                app.toggle_render_style();
+            }
+        }
+        KeyCode::Enter => {
+            if app.menu_selection == 2 {
+                app.toggle_render_style();
+                return;
+            }
+            app.start_selected_mode();
+        }
         _ => {}
     }
 }
@@ -376,6 +408,13 @@ fn render_menu(frame: &mut Frame, app: &App) {
     } else {
         Style::default()
     };
+    let render_style_style = if app.menu_selection == 2 {
+        Style::default()
+            .fg(Color::Yellow)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default()
+    };
     let menu_lines = vec![
         Line::from("Hiragana Quiz"),
         Line::from(""),
@@ -387,9 +426,16 @@ fn render_menu(frame: &mut Frame, app: &App) {
             Span::raw(if app.menu_selection == 1 { "> " } else { "  " }),
             Span::styled("Best of 20", best_of_style),
         ]),
+        Line::from(vec![
+            Span::raw(if app.menu_selection == 2 { "> " } else { "  " }),
+            Span::styled(
+                format!("Render: {}", app.render_style_label()),
+                render_style_style,
+            ),
+        ]),
         Line::from(""),
         Line::from("Use Up/Down to choose"),
-        Line::from("Enter: start  |  Esc: quit"),
+        Line::from("Enter: select  |  Esc: quit"),
     ];
 
     let menu = Paragraph::new(menu_lines)
@@ -462,7 +508,10 @@ fn render_game_screen(frame: &mut Frame, app: &mut App) {
         ])
         .split(glyph_row[1]);
 
-    render_hiragana_pixel_art(frame, app.current_hiragana(), glyph_col[1]);
+    match app.render_style {
+        RenderStyle::Braille => render_hiragana_pixel_art(frame, app.current_hiragana(), glyph_col[1]),
+        RenderStyle::Ascii => render_hiragana_ascii_art(frame, app.current_hiragana(), glyph_col[1]),
+    }
 
     let answer = Paragraph::new(app.input.as_str()).alignment(Alignment::Center);
     frame.render_widget(answer, layout[3]);
@@ -495,6 +544,108 @@ fn render_game_screen(frame: &mut Frame, app: &mut App) {
         .alignment(Alignment::Center)
         .style(Style::default().add_modifier(Modifier::DIM));
     frame.render_widget(controls, layout[5]);
+}
+
+fn render_hiragana_ascii_art(frame: &mut Frame, hiragana: &str, area: ratatui::layout::Rect) {
+    let Some(font) = pixel_font() else {
+        let fallback = Paragraph::new(hiragana)
+            .alignment(Alignment::Center)
+            .style(Style::default().fg(Color::White).add_modifier(Modifier::BOLD));
+        frame.render_widget(fallback, area);
+        return;
+    };
+
+    let Some(ch) = hiragana.chars().next() else {
+        return;
+    };
+
+    let (metrics, bitmap) = font.rasterize(ch, 192.0f32);
+    if metrics.width == 0 || metrics.height == 0 || area.width == 0 || area.height == 0 {
+        return;
+    }
+
+    let target_w = area.width as usize;
+    let target_h = area.height as usize;
+    let src_w = metrics.width;
+    let src_h = metrics.height;
+
+    let mut min_x = src_w;
+    let mut min_y = src_h;
+    let mut max_x = 0usize;
+    let mut max_y = 0usize;
+    let mut has_ink = false;
+    for y in 0..src_h {
+        for x in 0..src_w {
+            let v = bitmap[y * src_w + x];
+            if v <= 2 {
+                continue;
+            }
+            has_ink = true;
+            min_x = min_x.min(x);
+            min_y = min_y.min(y);
+            max_x = max_x.max(x);
+            max_y = max_y.max(y);
+        }
+    }
+    if !has_ink {
+        return;
+    }
+
+    let crop_w = (max_x - min_x + 1) as f32;
+    let crop_h = (max_y - min_y + 1) as f32;
+    let target_wf = target_w as f32;
+    let target_hf = target_h as f32;
+    let scale = (target_wf / crop_w).min(target_hf / crop_h);
+    let render_w = (crop_w * scale).max(1.0).round() as usize;
+    let render_h = (crop_h * scale).max(1.0).round() as usize;
+    let pad_x = (target_w.saturating_sub(render_w)) / 2;
+    let pad_y = (target_h.saturating_sub(render_h)) / 2;
+
+    // Supersample each terminal cell as a 2x2 block from the source raster.
+    let super_w = render_w * 2;
+    let super_h = render_h * 2;
+    let mut supersampled = vec![0u8; super_w * super_h];
+    for y in 0..super_h {
+        let src_yf = min_y as f32 + ((y as f32 + 0.5) / super_h as f32) * crop_h;
+        let src_y = src_yf.floor().clamp(0.0, (src_h - 1) as f32) as usize;
+        for x in 0..super_w {
+            let src_xf = min_x as f32 + ((x as f32 + 0.5) / super_w as f32) * crop_w;
+            let src_x = src_xf.floor().clamp(0.0, (src_w - 1) as f32) as usize;
+            supersampled[y * super_w + x] = bitmap[src_y * src_w + src_x];
+        }
+    }
+
+    let mut rows = Vec::with_capacity(target_h);
+    let shades = [' ', '.', ':', '-', '=', '+', '*', '#', '%', '@'];
+
+    for y in 0..target_h {
+        let mut line = String::with_capacity(target_w);
+        for x in 0..target_w {
+            let in_render_x = x >= pad_x && x < pad_x + render_w;
+            let in_render_y = y >= pad_y && y < pad_y + render_h;
+            if !in_render_x || !in_render_y {
+                line.push(' ');
+                continue;
+            }
+
+            let sx = (x - pad_x) * 2;
+            let sy = (y - pad_y) * 2;
+            let a = supersampled[sy * super_w + sx] as u32;
+            let b = supersampled[sy * super_w + sx + 1] as u32;
+            let c = supersampled[(sy + 1) * super_w + sx] as u32;
+            let d = supersampled[(sy + 1) * super_w + sx + 1] as u32;
+            let avg = (a + b + c + d) / 4;
+
+            let shade_index = (avg * (shades.len() as u32 - 1) / 255) as usize;
+            line.push(shades[shade_index]);
+        }
+        rows.push(line);
+    }
+
+    let art = Paragraph::new(rows.join("\n"))
+        .alignment(Alignment::Center)
+        .style(Style::default().fg(Color::White));
+    frame.render_widget(art, area);
 }
 
 fn render_finished(frame: &mut Frame, app: &App) {
