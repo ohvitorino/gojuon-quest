@@ -10,10 +10,12 @@ use anyhow::Result;
 use app::{App, AppState};
 use crossterm::event::{self, Event, KeyEventKind};
 use crossterm::execute;
-use crossterm::terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode};
+use crossterm::terminal::{
+    EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
+};
 use input::{
-    handle_column_options_key, handle_column_unlocked_key, handle_finished_key, handle_in_progress_key,
-    handle_menu_key, handle_showing_feedback_key,
+    handle_column_options_key, handle_column_unlocked_key, handle_finished_key,
+    handle_in_progress_key, handle_menu_key, handle_showing_feedback_key,
 };
 use ratatui::Terminal;
 

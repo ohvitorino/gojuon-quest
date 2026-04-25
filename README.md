@@ -65,7 +65,7 @@ cargo build --release
 ### Main menu
 
 - `↑` / `↓` or `j` / `k`: move selection
-- `←` / `→`: toggle render style (Braille / ASCII)
+- `←` / `→` or `h` / `l` (on Render row): toggle render style (Braille / ASCII)
 - `Enter`: choose mode
 - `Esc`: quit
 

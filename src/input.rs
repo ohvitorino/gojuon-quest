@@ -31,9 +31,11 @@ pub(crate) fn handle_showing_feedback_key(app: &mut App, code: KeyCode) {
 pub(crate) fn handle_menu_key(app: &mut App, code: KeyCode) {
     match code {
         KeyCode::Esc => app.running = false,
-        KeyCode::Up | KeyCode::Char('k') => app.menu_selection = app.menu_selection.saturating_sub(1),
+        KeyCode::Up | KeyCode::Char('k') => {
+            app.menu_selection = app.menu_selection.saturating_sub(1)
+        }
         KeyCode::Down | KeyCode::Char('j') => app.menu_selection = (app.menu_selection + 1).min(3),
-        KeyCode::Left | KeyCode::Right => {
+        KeyCode::Left | KeyCode::Right | KeyCode::Char('h') | KeyCode::Char('l') => {
             if app.menu_selection == 3 {
                 app.toggle_render_style();
             }
@@ -80,7 +82,8 @@ pub(crate) fn handle_column_options_key(app: &mut App, code: KeyCode) {
                 app.start_selected_mode();
                 return;
             }
-            app.selected_columns[app.options_selection] = !app.selected_columns[app.options_selection];
+            app.selected_columns[app.options_selection] =
+                !app.selected_columns[app.options_selection];
             app.options_feedback = None;
         }
         _ => {}
@@ -225,6 +228,19 @@ mod tests {
 
         app.menu_selection = 3;
         handle_menu_key(&mut app, KeyCode::Right);
+        assert_ne!(app.render_style_label(), label_before);
+    }
+
+    #[test]
+    fn menu_h_l_only_toggles_render_on_row_3() {
+        let mut app = App::new();
+        app.menu_selection = 0;
+        let label_before = app.render_style_label();
+        handle_menu_key(&mut app, KeyCode::Char('h'));
+        assert_eq!(app.render_style_label(), label_before);
+
+        app.menu_selection = 3;
+        handle_menu_key(&mut app, KeyCode::Char('l'));
         assert_ne!(app.render_style_label(), label_before);
     }
 

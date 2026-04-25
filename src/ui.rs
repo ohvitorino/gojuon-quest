@@ -1,13 +1,13 @@
 use std::sync::OnceLock;
 
 use fontdue::Font;
+use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Direction, Layout};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::symbols::Marker;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::canvas::{Canvas, Points};
 use ratatui::widgets::{Block, Borders, Paragraph};
-use ratatui::Frame;
 
 use crate::app::{App, AppState, GameMode, RenderStyle};
 use crate::kana::{COLUMN_INDEX_GROUPS, COLUMN_LABELS, HIRAGANA_BASIC_46};
@@ -32,9 +32,11 @@ fn pixel_font() -> Option<&'static Font> {
 
 fn render_hiragana_pixel_art(frame: &mut Frame, hiragana: &str, area: ratatui::layout::Rect) {
     let Some(font) = pixel_font() else {
-        let fallback = Paragraph::new(hiragana)
-            .alignment(Alignment::Center)
-            .style(Style::default().fg(Color::White).add_modifier(Modifier::BOLD));
+        let fallback = Paragraph::new(hiragana).alignment(Alignment::Center).style(
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
+        );
         frame.render_widget(fallback, area);
         return;
     };
@@ -80,9 +82,11 @@ fn render_hiragana_pixel_art(frame: &mut Frame, hiragana: &str, area: ratatui::l
 
 fn render_hiragana_ascii_art(frame: &mut Frame, hiragana: &str, area: ratatui::layout::Rect) {
     let Some(font) = pixel_font() else {
-        let fallback = Paragraph::new(hiragana)
-            .alignment(Alignment::Center)
-            .style(Style::default().fg(Color::White).add_modifier(Modifier::BOLD));
+        let fallback = Paragraph::new(hiragana).alignment(Alignment::Center).style(
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
+        );
         frame.render_widget(fallback, area);
         return;
     };
@@ -197,151 +201,299 @@ pub(crate) fn ui(frame: &mut Frame, app: &mut App) {
 }
 
 fn render_menu(frame: &mut Frame, app: &App) {
-    let infinite_style = if app.menu_selection == 0 {
-        Style::default()
-            .fg(Color::Yellow)
-            .add_modifier(Modifier::BOLD)
+    let shell = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(5),
+            Constraint::Min(18),
+            Constraint::Length(4),
+        ])
+        .split(frame.area());
+    let header = Paragraph::new(vec![
+        Line::from(Span::styled(
+            "GOJUON QUEST",
+            Style::default()
+                .fg(Color::LightYellow)
+                .add_modifier(Modifier::BOLD),
+        )),
+        Line::from(Span::styled(
+            "祭り Selection Hall",
+            Style::default()
+                .fg(Color::LightCyan)
+                .add_modifier(Modifier::BOLD),
+        )),
+        Line::from("Choose your training path"),
+    ])
+    .alignment(Alignment::Center)
+    .block(Block::default().borders(Borders::ALL).title("Main Gate"));
+    frame.render_widget(header, shell[0]);
+
+    let body = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(65), Constraint::Percentage(35)])
+        .split(shell[1]);
+    let left = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(6),
+            Constraint::Length(6),
+            Constraint::Length(6),
+            Constraint::Length(6),
+        ])
+        .split(body[0]);
+
+    let mode_cards = [
+        ("Infinite", "Endless reps, free pace"),
+        ("Best of 20", "Focused sprint session"),
+        ("Progressive", "Unlock columns by mastery"),
+    ];
+    for (idx, area) in left.iter().take(3).enumerate() {
+        let selected = app.menu_selection == idx;
+        let accent = if selected {
+            Color::LightYellow
+        } else {
+            Color::DarkGray
+        };
+        let lines = vec![
+            Line::from(vec![
+                Span::styled(
+                    if selected { "❯ " } else { "  " },
+                    Style::default().fg(accent),
+                ),
+                Span::styled(
+                    mode_cards[idx].0,
+                    Style::default().fg(accent).add_modifier(Modifier::BOLD),
+                ),
+            ]),
+            Line::from(""),
+            Line::from(Span::styled(
+                mode_cards[idx].1,
+                Style::default().fg(Color::Gray),
+            )),
+        ];
+        let card = Paragraph::new(lines).block(Block::default().borders(Borders::ALL));
+        frame.render_widget(card, *area);
+    }
+
+    let render_selected = app.menu_selection == 3;
+    let render_color = if render_selected {
+        Color::LightMagenta
     } else {
-        Style::default()
+        Color::DarkGray
     };
-    let best_of_style = if app.menu_selection == 1 {
-        Style::default()
-            .fg(Color::Yellow)
-            .add_modifier(Modifier::BOLD)
-    } else {
-        Style::default()
-    };
-    let progressive_style = if app.menu_selection == 2 {
-        Style::default()
-            .fg(Color::Yellow)
-            .add_modifier(Modifier::BOLD)
-    } else {
-        Style::default()
-    };
-    let render_style_style = if app.menu_selection == 3 {
-        Style::default()
-            .fg(Color::Yellow)
-            .add_modifier(Modifier::BOLD)
-    } else {
-        Style::default()
-    };
-    let menu_lines = vec![
-        Line::from("Hiragana Quiz"),
-        Line::from(""),
+    let render_card = Paragraph::new(vec![
         Line::from(vec![
-            Span::raw(if app.menu_selection == 0 { "> " } else { "  " }),
-            Span::styled("Infinite", infinite_style),
-        ]),
-        Line::from(vec![
-            Span::raw(if app.menu_selection == 1 { "> " } else { "  " }),
-            Span::styled("Best of 20", best_of_style),
-        ]),
-        Line::from(vec![
-            Span::raw(if app.menu_selection == 2 { "> " } else { "  " }),
-            Span::styled("Progressive", progressive_style),
-        ]),
-        Line::from(vec![
-            Span::raw(if app.menu_selection == 3 { "> " } else { "  " }),
             Span::styled(
-                format!("Render: {}", app.render_style_label()),
-                render_style_style,
+                if render_selected { "❯ " } else { "  " },
+                Style::default().fg(render_color),
+            ),
+            Span::styled(
+                "Render Style",
+                Style::default()
+                    .fg(render_color)
+                    .add_modifier(Modifier::BOLD),
             ),
         ]),
         Line::from(""),
-        Line::from("Use Up/Down to choose"),
-        Line::from("Enter: select  |  Esc: quit"),
-    ];
+        Line::from(vec![
+            Span::styled("Current: ", Style::default().fg(Color::Gray)),
+            Span::styled(
+                app.render_style_label(),
+                Style::default()
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD),
+            ),
+        ]),
+        Line::from(Span::styled(
+            "Use ←/→ or h/l to switch",
+            Style::default().fg(Color::Gray),
+        )),
+    ])
+    .block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title("Style"),
+    );
+    frame.render_widget(render_card, left[3]);
 
-    let menu = Paragraph::new(menu_lines)
-        .alignment(Alignment::Center)
-        .block(Block::default().title("Game Mode").borders(Borders::ALL));
+    let side_panel = Paragraph::new(vec![
+        Line::from(Span::styled(
+            "Dojo Notes",
+            Style::default()
+                .fg(Color::LightCyan)
+                .add_modifier(Modifier::BOLD),
+        )),
+        Line::from(""),
+        Line::from("Infinite"),
+        Line::from("  open-ended practice"),
+        Line::from(""),
+        Line::from("Best of 20"),
+        Line::from("  quick score challenge"),
+        Line::from(""),
+        Line::from("Progressive"),
+        Line::from("  master each row to unlock"),
+    ])
+    .alignment(Alignment::Left)
+    .block(Block::default().borders(Borders::ALL).title("Info"));
+    frame.render_widget(side_panel, body[1]);
 
-    let row = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Percentage(25),
-            Constraint::Percentage(50),
-            Constraint::Percentage(25),
-        ])
-        .split(frame.area());
-
-    let col = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Percentage(30),
-            Constraint::Percentage(40),
-            Constraint::Percentage(30),
-        ])
-        .split(row[1]);
-
-    frame.render_widget(menu, col[1]);
+    let footer = Paragraph::new(vec![
+        Line::from(Span::styled(
+            "Primary: ↑/↓ or j/k to move  •  Enter to select",
+            Style::default().fg(Color::White),
+        )),
+        Line::from(Span::styled(
+            "Secondary: ←/→ or h/l on Render row  •  Esc to quit",
+            Style::default().fg(Color::DarkGray),
+        )),
+    ])
+    .alignment(Alignment::Center)
+    .block(Block::default().borders(Borders::ALL).title("Controls"));
+    frame.render_widget(footer, shell[2]);
 }
 
 fn render_column_options(frame: &mut Frame, app: &App) {
-    let mut lines = vec![
-        Line::from("Select columns for this session"),
-        Line::from(""),
-    ];
-
-    for (idx, label) in COLUMN_LABELS.iter().enumerate() {
-        let marker = if app.options_selection == idx { "> " } else { "  " };
-        let checkbox = if app.selected_columns[idx] { "[x]" } else { "[ ]" };
-        let style = if app.options_selection == idx {
-            Style::default()
-                .fg(Color::Yellow)
-                .add_modifier(Modifier::BOLD)
-        } else {
-            Style::default()
-        };
-        lines.push(Line::from(vec![
-            Span::raw(marker),
-            Span::styled(format!("{} {}", checkbox, label), style),
-        ]));
-    }
-
-    lines.push(Line::from(""));
-    let start_selected = app.options_selection == COLUMN_LABELS.len();
-    let start_style = if start_selected {
-        Style::default()
-            .fg(Color::Green)
-            .add_modifier(Modifier::BOLD)
-    } else {
-        Style::default()
-    };
-    lines.push(Line::from(vec![
-        Span::raw(if start_selected { "> " } else { "  " }),
-        Span::styled("Start", start_style),
-    ]));
-    lines.push(Line::from(""));
-    lines.push(Line::from(
-        app.options_feedback
-            .as_deref()
-            .unwrap_or("Space/Enter: toggle  |  s/Enter on Start: begin  |  Esc: back"),
-    ));
-
-    let block = Paragraph::new(lines)
-        .alignment(Alignment::Left)
-        .block(Block::default().title("Columns").borders(Borders::ALL));
-
-    let row = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Percentage(20),
-            Constraint::Percentage(60),
-            Constraint::Percentage(20),
-        ])
-        .split(frame.area());
-
-    let col = Layout::default()
+    let shell = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Percentage(15),
-            Constraint::Percentage(70),
-            Constraint::Percentage(15),
+            Constraint::Length(4),
+            Constraint::Min(16),
+            Constraint::Length(5),
         ])
-        .split(row[1]);
+        .split(frame.area());
+    frame.render_widget(
+        Paragraph::new(vec![
+            Line::from(Span::styled(
+                "Column Selection Shrine",
+                Style::default()
+                    .fg(Color::LightYellow)
+                    .add_modifier(Modifier::BOLD),
+            )),
+            Line::from("Choose your active kana rows"),
+        ])
+        .alignment(Alignment::Center)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title("Session Setup"),
+        ),
+        shell[0],
+    );
 
-    frame.render_widget(block, col[1]);
+    let body = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(70), Constraint::Percentage(30)])
+        .split(shell[1]);
+
+    let mut rows_constraints = vec![Constraint::Length(2); COLUMN_LABELS.len()];
+    rows_constraints.push(Constraint::Length(1));
+    rows_constraints.push(Constraint::Length(3));
+    let rows = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints(rows_constraints)
+        .split(body[0]);
+
+    for (idx, label) in COLUMN_LABELS.iter().enumerate() {
+        let focused = app.options_selection == idx;
+        let active = app.selected_columns[idx];
+        let accent = if focused {
+            Color::LightYellow
+        } else if active {
+            Color::LightGreen
+        } else {
+            Color::Gray
+        };
+        let state_badge = if active { "ON " } else { "OFF" };
+        let focus_marker = if focused { "❯" } else { " " };
+        frame.render_widget(
+            Paragraph::new(Line::from(vec![
+                Span::styled(format!("{focus_marker} "), Style::default().fg(accent)),
+                Span::styled(format!("[{state_badge}] "), Style::default().fg(accent)),
+                Span::styled(
+                    *label,
+                    Style::default()
+                        .fg(Color::White)
+                        .add_modifier(Modifier::BOLD),
+                ),
+            ]))
+            .block(Block::default().borders(Borders::LEFT | Borders::RIGHT)),
+            rows[idx],
+        );
+    }
+
+    let start_selected = app.options_selection == COLUMN_LABELS.len();
+    let start_color = if start_selected {
+        Color::LightMagenta
+    } else {
+        Color::DarkGray
+    };
+    frame.render_widget(
+        Paragraph::new(vec![
+            Line::from(vec![
+                Span::styled(
+                    if start_selected { "❯ " } else { "  " },
+                    Style::default().fg(start_color),
+                ),
+                Span::styled(
+                    "START SESSION",
+                    Style::default()
+                        .fg(start_color)
+                        .add_modifier(Modifier::BOLD),
+                ),
+            ]),
+            Line::from(Span::styled(
+                "Press s or Enter",
+                Style::default().fg(Color::Gray),
+            )),
+        ])
+        .block(Block::default().borders(Borders::ALL).title("Action")),
+        rows[COLUMN_LABELS.len() + 1],
+    );
+
+    let active_count = app
+        .selected_columns
+        .iter()
+        .filter(|enabled| **enabled)
+        .count();
+    frame.render_widget(
+        Paragraph::new(vec![
+            Line::from(Span::styled(
+                "Selection",
+                Style::default()
+                    .fg(Color::LightCyan)
+                    .add_modifier(Modifier::BOLD),
+            )),
+            Line::from(""),
+            Line::from(format!(
+                "Active columns: {active_count}/{}",
+                COLUMN_LABELS.len()
+            )),
+            Line::from(if active_count == 0 {
+                "Need at least one column"
+            } else {
+                "Ready to begin"
+            }),
+        ])
+        .block(Block::default().borders(Borders::ALL).title("Status")),
+        body[1],
+    );
+
+    let feedback = app
+        .options_feedback
+        .as_deref()
+        .unwrap_or("Primary: ↑/↓ move  •  Enter/Space toggle  •  s begin");
+    frame.render_widget(
+        Paragraph::new(vec![
+            Line::from(Span::styled(feedback, Style::default().fg(Color::White))),
+            Line::from(Span::styled(
+                "Secondary: Esc back",
+                Style::default().fg(Color::DarkGray),
+            )),
+        ])
+        .alignment(Alignment::Center)
+        .block(Block::default().borders(Borders::ALL).title("Hints")),
+        shell[2],
+    );
 }
 
 fn render_game_screen(frame: &mut Frame, app: &mut App) {
@@ -391,8 +543,12 @@ fn render_game_screen(frame: &mut Frame, app: &mut App) {
         .split(glyph_row[1]);
 
     match app.render_style {
-        RenderStyle::Braille => render_hiragana_pixel_art(frame, app.current_hiragana(), glyph_col[1]),
-        RenderStyle::Ascii => render_hiragana_ascii_art(frame, app.current_hiragana(), glyph_col[1]),
+        RenderStyle::Braille => {
+            render_hiragana_pixel_art(frame, app.current_hiragana(), glyph_col[1])
+        }
+        RenderStyle::Ascii => {
+            render_hiragana_ascii_art(frame, app.current_hiragana(), glyph_col[1])
+        }
     }
 
     let answer = Paragraph::new(app.input.as_str()).alignment(Alignment::Center);
@@ -404,7 +560,9 @@ fn render_game_screen(frame: &mut Frame, app: &mut App) {
         None => Color::Reset,
     };
     let feedback_style = if showing_feedback {
-        Style::default().fg(feedback_color).add_modifier(Modifier::BOLD)
+        Style::default()
+            .fg(feedback_color)
+            .add_modifier(Modifier::BOLD)
     } else {
         Style::default().add_modifier(Modifier::DIM)
     };
@@ -444,7 +602,10 @@ fn render_progressive_game_screen(frame: &mut Frame, app: &mut App) {
 
     let progress_chunks = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints(vec![Constraint::Ratio(1, COLUMN_LABELS.len() as u32); COLUMN_LABELS.len()])
+        .constraints(vec![
+            Constraint::Ratio(1, COLUMN_LABELS.len() as u32);
+            COLUMN_LABELS.len()
+        ])
         .split(layout[0]);
     for (column, area) in progress_chunks.iter().enumerate() {
         let total = (COLUMN_INDEX_GROUPS[column].len() * 3) as u32;
@@ -459,7 +620,9 @@ fn render_progressive_game_screen(frame: &mut Frame, app: &mut App) {
             format!("{} ···", COLUMN_LABELS[column])
         };
         let style = if column == app.progressive_unlocked_columns.saturating_sub(1) {
-            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD)
         } else {
             Style::default().add_modifier(Modifier::DIM)
         };
@@ -484,7 +647,10 @@ fn render_progressive_game_screen(frame: &mut Frame, app: &mut App) {
         })
         .collect::<Vec<_>>()
         .join(" ");
-    frame.render_widget(Paragraph::new(mastery_line).alignment(Alignment::Center), layout[1]);
+    frame.render_widget(
+        Paragraph::new(mastery_line).alignment(Alignment::Center),
+        layout[1],
+    );
 
     let glyph_row = Layout::default()
         .direction(Direction::Horizontal)
@@ -503,11 +669,18 @@ fn render_progressive_game_screen(frame: &mut Frame, app: &mut App) {
         ])
         .split(glyph_row[1]);
     match app.render_style {
-        RenderStyle::Braille => render_hiragana_pixel_art(frame, app.current_hiragana(), glyph_col[1]),
-        RenderStyle::Ascii => render_hiragana_ascii_art(frame, app.current_hiragana(), glyph_col[1]),
+        RenderStyle::Braille => {
+            render_hiragana_pixel_art(frame, app.current_hiragana(), glyph_col[1])
+        }
+        RenderStyle::Ascii => {
+            render_hiragana_ascii_art(frame, app.current_hiragana(), glyph_col[1])
+        }
     }
 
-    frame.render_widget(Paragraph::new(app.input.as_str()).alignment(Alignment::Center), layout[3]);
+    frame.render_widget(
+        Paragraph::new(app.input.as_str()).alignment(Alignment::Center),
+        layout[3],
+    );
 
     let feedback_color = match app.last_correct {
         Some(true) => Color::Green,
@@ -515,7 +688,9 @@ fn render_progressive_game_screen(frame: &mut Frame, app: &mut App) {
         None => Color::Reset,
     };
     let feedback_style = if showing_feedback {
-        Style::default().fg(feedback_color).add_modifier(Modifier::BOLD)
+        Style::default()
+            .fg(feedback_color)
+            .add_modifier(Modifier::BOLD)
     } else {
         Style::default().add_modifier(Modifier::DIM)
     };
@@ -590,9 +765,11 @@ fn render_finished(frame: &mut Frame, app: &App) {
             hardest
         );
 
-        let block = Paragraph::new(summary)
-            .alignment(Alignment::Center)
-            .block(Block::default().title("Final Results").borders(Borders::ALL));
+        let block = Paragraph::new(summary).alignment(Alignment::Center).block(
+            Block::default()
+                .title("Final Results")
+                .borders(Borders::ALL),
+        );
         frame.render_widget(block, frame.area());
         return;
     }
@@ -606,9 +783,11 @@ fn render_finished(frame: &mut Frame, app: &App) {
         app.accuracy()
     );
 
-    let block = Paragraph::new(summary)
-        .alignment(Alignment::Center)
-        .block(Block::default().title("Final Results").borders(Borders::ALL));
+    let block = Paragraph::new(summary).alignment(Alignment::Center).block(
+        Block::default()
+            .title("Final Results")
+            .borders(Borders::ALL),
+    );
     frame.render_widget(block, frame.area());
 }
 

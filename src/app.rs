@@ -228,6 +228,7 @@ impl App {
     }
 
     pub(crate) fn start_progressive_mode(&mut self) {
+        self.mode = GameMode::Progressive;
         self.state = AppState::InProgress;
         self.input.clear();
         self.correct = 0;
