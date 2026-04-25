@@ -1,0 +1,11 @@
+[package]
+name = "japanese_tui"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1"
+crossterm = "0.29"
+ratatui = "0.29"
+rand = "0.9"
+fontdue = "0.9.3"
