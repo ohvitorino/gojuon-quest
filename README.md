@@ -1,6 +1,6 @@
 # 🇯🇵 Gojuon Quest (TUI) 🎮
 
-Sharpen your hiragana reading in a cozy terminal quiz game with a little matsuri vibe.  
+Sharpen your hiragana reading in a cozy terminal quiz game with a little matsuri vibe.
 Type the romaji for each kana, build streaks, and climb toward mastery one column at a time. 🍵
 
 ## ✨ What this is
