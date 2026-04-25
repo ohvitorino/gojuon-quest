@@ -1,4 +1,4 @@
-# 🇯🇵 Japanese Hiragana Quiz (TUI) 🎮
+# 🇯🇵 Gojuon Quest (TUI) 🎮
 
 Sharpen your hiragana reading in a cozy terminal quiz game with a little matsuri vibe.  
 Type the romaji for each kana, build streaks, and climb toward mastery one column at a time. 🍵
@@ -45,7 +45,7 @@ For Infinite and Best of 20, you can choose which columns are active:
 
 ```bash
 git clone <your-repo-url>
-cd japanese
+cd gojuon-quest
 cargo run
 ```
 
