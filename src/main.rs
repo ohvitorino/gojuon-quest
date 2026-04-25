@@ -11,6 +11,7 @@ use rand::seq::SliceRandom;
 use ratatui::layout::{Alignment, Constraint, Direction, Layout};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::symbols::Marker;
+use ratatui::text::{Line, Span};
 use ratatui::widgets::canvas::{Canvas, Points};
 use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::{Frame, Terminal};
@@ -130,18 +131,28 @@ const HIRAGANA_BASIC_46: [(&str, &str); 46] = [
     ("ん", "n"),
 ];
 
-enum SessionState {
+enum GameMode {
+    Infinite,
+    BestOf(u32),
+}
+
+enum AppState {
+    Menu,
     InProgress,
+    ShowingFeedback,
     Finished,
 }
 
 struct App {
     running: bool,
-    state: SessionState,
+    state: AppState,
+    mode: GameMode,
+    menu_selection: usize,
     input: String,
     correct: u32,
     incorrect: u32,
     last_feedback: Option<String>,
+    last_correct: Option<bool>,
     deck: Vec<usize>,
     deck_position: usize,
     current_index: usize,
@@ -149,22 +160,20 @@ struct App {
 
 impl App {
     fn new() -> Self {
-        let mut app = Self {
+        Self {
             running: true,
-            state: SessionState::InProgress,
+            state: AppState::Menu,
+            mode: GameMode::Infinite,
+            menu_selection: 0,
             input: String::new(),
             correct: 0,
             incorrect: 0,
             last_feedback: None,
+            last_correct: None,
             deck: Vec::new(),
             deck_position: 0,
             current_index: 0,
-        };
-
-        app.refill_deck();
-        app.current_index = app.deck[0];
-        app.deck_position = 1;
-        app
+        }
     }
 
     fn refill_deck(&mut self) {
@@ -198,21 +207,53 @@ impl App {
 
         if is_correct {
             self.correct += 1;
-            self.last_feedback = Some(format!("Correct: {} -> {}", shown, expected));
-        }
-
-        if !is_correct {
+            self.last_feedback = Some(format!("Correct: {} → {}", shown, expected));
+        } else {
             self.incorrect += 1;
             self.last_feedback = Some(format!(
                 "Incorrect: {} expected '{}', got '{}'",
-                shown,
-                expected,
-                typed
+                shown, expected, typed
             ));
         }
 
+        self.last_correct = Some(is_correct);
         self.input.clear();
-        self.advance_prompt();
+
+        if self.reached_mode_limit() {
+            self.state = AppState::Finished;
+            return;
+        }
+
+        self.state = AppState::ShowingFeedback;
+    }
+
+    fn reached_mode_limit(&self) -> bool {
+        let answered = self.correct + self.incorrect;
+        match self.mode {
+            GameMode::Infinite => false,
+            GameMode::BestOf(limit) => answered >= limit,
+        }
+    }
+
+    fn select_mode(&self) -> GameMode {
+        if self.menu_selection == 0 {
+            return GameMode::Infinite;
+        }
+
+        GameMode::BestOf(20)
+    }
+
+    fn start_selected_mode(&mut self) {
+        self.mode = self.select_mode();
+        self.state = AppState::InProgress;
+        self.input.clear();
+        self.correct = 0;
+        self.incorrect = 0;
+        self.last_feedback = None;
+        self.last_correct = None;
+        self.refill_deck();
+        self.current_index = self.deck[0];
+        self.deck_position = 1;
     }
 
     fn accuracy(&self) -> f64 {
@@ -260,8 +301,10 @@ fn run_app(terminal: &mut Terminal<ratatui::backend::CrosstermBackend<io::Stdout
         }
 
         match app.state {
-            SessionState::InProgress => handle_in_progress_key(&mut app, key.code),
-            SessionState::Finished => handle_finished_key(&mut app, key.code),
+            AppState::Menu => handle_menu_key(&mut app, key.code),
+            AppState::InProgress => handle_in_progress_key(&mut app, key.code),
+            AppState::ShowingFeedback => handle_showing_feedback_key(&mut app, key.code),
+            AppState::Finished => handle_finished_key(&mut app, key.code),
         }
     }
 
@@ -270,12 +313,35 @@ fn run_app(terminal: &mut Terminal<ratatui::backend::CrosstermBackend<io::Stdout
 
 fn handle_in_progress_key(app: &mut App, code: KeyCode) {
     match code {
-        KeyCode::Esc => app.state = SessionState::Finished,
+        KeyCode::Esc => app.state = AppState::Menu,
         KeyCode::Enter => app.evaluate_current_answer(),
         KeyCode::Backspace => {
             app.input.pop();
         }
         KeyCode::Char(c) => app.input.push(c),
+        _ => {}
+    }
+}
+
+fn handle_showing_feedback_key(app: &mut App, code: KeyCode) {
+    match code {
+        KeyCode::Esc => app.state = AppState::Menu,
+        KeyCode::Enter | KeyCode::Char(' ') => {
+            app.advance_prompt();
+            app.last_feedback = None;
+            app.last_correct = None;
+            app.state = AppState::InProgress;
+        }
+        _ => {}
+    }
+}
+
+fn handle_menu_key(app: &mut App, code: KeyCode) {
+    match code {
+        KeyCode::Esc => app.running = false,
+        KeyCode::Up | KeyCode::Char('k') => app.menu_selection = app.menu_selection.saturating_sub(1),
+        KeyCode::Down | KeyCode::Char('j') => app.menu_selection = (app.menu_selection + 1).min(1),
+        KeyCode::Enter => app.start_selected_mode(),
         _ => {}
     }
 }
@@ -289,12 +355,71 @@ fn handle_finished_key(app: &mut App, code: KeyCode) {
 
 fn ui(frame: &mut Frame, app: &mut App) {
     match app.state {
-        SessionState::InProgress => render_in_progress(frame, app),
-        SessionState::Finished => render_finished(frame, app),
+        AppState::Menu => render_menu(frame, app),
+        AppState::InProgress | AppState::ShowingFeedback => render_game_screen(frame, app),
+        AppState::Finished => render_finished(frame, app),
     }
 }
 
-fn render_in_progress(frame: &mut Frame, app: &mut App) {
+fn render_menu(frame: &mut Frame, app: &App) {
+    let infinite_style = if app.menu_selection == 0 {
+        Style::default()
+            .fg(Color::Yellow)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default()
+    };
+    let best_of_style = if app.menu_selection == 1 {
+        Style::default()
+            .fg(Color::Yellow)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default()
+    };
+    let menu_lines = vec![
+        Line::from("Hiragana Quiz"),
+        Line::from(""),
+        Line::from(vec![
+            Span::raw(if app.menu_selection == 0 { "> " } else { "  " }),
+            Span::styled("Infinite", infinite_style),
+        ]),
+        Line::from(vec![
+            Span::raw(if app.menu_selection == 1 { "> " } else { "  " }),
+            Span::styled("Best of 20", best_of_style),
+        ]),
+        Line::from(""),
+        Line::from("Use Up/Down to choose"),
+        Line::from("Enter: start  |  Esc: quit"),
+    ];
+
+    let menu = Paragraph::new(menu_lines)
+        .alignment(Alignment::Center)
+        .block(Block::default().title("Game Mode").borders(Borders::ALL));
+
+    let row = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage(25),
+            Constraint::Percentage(50),
+            Constraint::Percentage(25),
+        ])
+        .split(frame.area());
+
+    let col = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Percentage(30),
+            Constraint::Percentage(40),
+            Constraint::Percentage(30),
+        ])
+        .split(row[1]);
+
+    frame.render_widget(menu, col[1]);
+}
+
+fn render_game_screen(frame: &mut Frame, app: &mut App) {
+    let showing_feedback = matches!(app.state, AppState::ShowingFeedback);
+
     let layout = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -312,7 +437,10 @@ fn render_in_progress(frame: &mut Frame, app: &mut App) {
         .constraints([Constraint::Min(0), Constraint::Length(10)])
         .split(layout[0]);
 
-    let score_text = format!("{}/{}", app.correct, app.incorrect);
+    let score_text = match app.mode {
+        GameMode::Infinite => format!("{}/{}", app.correct, app.incorrect),
+        GameMode::BestOf(limit) => format!("{}/{}", app.correct + app.incorrect, limit),
+    };
     let score = Paragraph::new(score_text).alignment(Alignment::Right);
     frame.render_widget(score, top_bar[1]);
 
@@ -333,23 +461,37 @@ fn render_in_progress(frame: &mut Frame, app: &mut App) {
             Constraint::Percentage(10),
         ])
         .split(glyph_row[1]);
-    let glyph_area = glyph_col[1];
 
-    render_hiragana_pixel_art(frame, app.current_hiragana(), glyph_area);
+    render_hiragana_pixel_art(frame, app.current_hiragana(), glyph_col[1]);
 
     let answer = Paragraph::new(app.input.as_str()).alignment(Alignment::Center);
     frame.render_widget(answer, layout[3]);
 
-    let feedback = Paragraph::new(
-        app.last_feedback
-            .as_deref()
-            .unwrap_or("Type romaji and press Enter"),
-    )
+    let feedback_color = match app.last_correct {
+        Some(true) => Color::Green,
+        Some(false) => Color::Red,
+        None => Color::Reset,
+    };
+    let feedback_style = if showing_feedback {
+        Style::default().fg(feedback_color).add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().add_modifier(Modifier::DIM)
+    };
+    let feedback_text = app
+        .last_feedback
+        .as_deref()
+        .unwrap_or("Type romaji and press Enter");
+    let feedback = Paragraph::new(feedback_text)
         .alignment(Alignment::Center)
-        .style(Style::default().add_modifier(Modifier::DIM));
+        .style(feedback_style);
     frame.render_widget(feedback, layout[4]);
 
-    let controls = Paragraph::new("Enter: evaluate  |  Backspace: delete  |  Esc: finish session")
+    let controls_text = if showing_feedback {
+        "Enter/Space: next  |  Esc: finish session"
+    } else {
+        "Enter: evaluate  |  Backspace: delete  |  Esc: finish session"
+    };
+    let controls = Paragraph::new(controls_text)
         .alignment(Alignment::Center)
         .style(Style::default().add_modifier(Modifier::DIM));
     frame.render_widget(controls, layout[5]);
