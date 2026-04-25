@@ -92,7 +92,8 @@ pub(crate) fn handle_column_options_key(app: &mut App, code: KeyCode) {
 
 pub(crate) fn handle_finished_key(app: &mut App, code: KeyCode) {
     match code {
-        KeyCode::Esc | KeyCode::Enter => app.running = false,
+        KeyCode::Esc => app.running = false,
+        KeyCode::Enter => app.state = AppState::Menu,
         _ => {}
     }
 }
@@ -338,10 +339,12 @@ mod tests {
     }
 
     #[test]
-    fn finished_enter_stops_running() {
+    fn finished_enter_returns_to_menu() {
         let mut app = App::new();
+        app.state = AppState::Finished;
         handle_finished_key(&mut app, KeyCode::Enter);
-        assert!(!app.running);
+        assert!(app.running);
+        assert!(matches!(app.state, AppState::Menu));
     }
 
     #[test]

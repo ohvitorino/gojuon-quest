@@ -14,6 +14,12 @@ use crate::kana::{COLUMN_INDEX_GROUPS, COLUMN_LABELS, HIRAGANA_BASIC_46};
 
 static PIXEL_FONT: OnceLock<Option<Font>> = OnceLock::new();
 
+fn format_elapsed(seconds: u64) -> String {
+    let minutes = seconds / 60;
+    let secs = seconds % 60;
+    format!("{minutes:02}:{secs:02}")
+}
+
 fn pixel_font() -> Option<&'static Font> {
     PIXEL_FONT
         .get_or_init(|| {
@@ -309,14 +315,10 @@ fn render_menu(frame: &mut Frame, app: &App) {
             Style::default().fg(Color::Gray),
         )),
     ])
-    .block(
-        Block::default()
-            .borders(Borders::ALL)
-            .title("Style"),
-    );
+    .block(Block::default().borders(Borders::ALL).title("Style"));
     frame.render_widget(render_card, left[3]);
 
-    let side_panel = Paragraph::new(vec![
+    let mut side_lines = vec![
         Line::from(Span::styled(
             "Dojo Notes",
             Style::default()
@@ -328,13 +330,35 @@ fn render_menu(frame: &mut Frame, app: &App) {
         Line::from("  open-ended practice"),
         Line::from(""),
         Line::from("Best of 20"),
-        Line::from("  quick score challenge"),
+        Line::from("  timed score challenge"),
         Line::from(""),
         Line::from("Progressive"),
         Line::from("  master each row to unlock"),
-    ])
-    .alignment(Alignment::Left)
-    .block(Block::default().borders(Borders::ALL).title("Info"));
+        Line::from(""),
+        Line::from(Span::styled(
+            "Leaderboard",
+            Style::default()
+                .fg(Color::LightYellow)
+                .add_modifier(Modifier::BOLD),
+        )),
+    ];
+    if app.scoreboard.entries.is_empty() {
+        side_lines.push(Line::from("  no runs yet"));
+    } else {
+        for (idx, entry) in app.scoreboard.entries.iter().take(3).enumerate() {
+            side_lines.push(Line::from(format!(
+                "  {}. {} pts ({:02}:{:02})",
+                idx + 1,
+                entry.points,
+                entry.elapsed_secs / 60,
+                entry.elapsed_secs % 60
+            )));
+        }
+    }
+
+    let side_panel = Paragraph::new(side_lines)
+        .alignment(Alignment::Left)
+        .block(Block::default().borders(Borders::ALL).title("Info"));
     frame.render_widget(side_panel, body[1]);
 
     let footer = Paragraph::new(vec![
@@ -513,7 +537,11 @@ fn render_game_screen(frame: &mut Frame, app: &mut App) {
 
     let top_bar = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Min(0), Constraint::Length(10)])
+        .constraints([
+            Constraint::Min(0),
+            Constraint::Length(14),
+            Constraint::Length(10),
+        ])
         .split(layout[0]);
 
     let score_text = match app.mode {
@@ -521,8 +549,14 @@ fn render_game_screen(frame: &mut Frame, app: &mut App) {
         GameMode::BestOf(limit) => format!("{}/{}", app.correct + app.incorrect, limit),
         GameMode::Progressive => format!("{}/{}", app.correct, app.incorrect),
     };
+    if matches!(app.mode, GameMode::BestOf(_)) {
+        let timer = Paragraph::new(format!("t {}", format_elapsed(app.session_elapsed_secs)))
+            .alignment(Alignment::Right)
+            .style(Style::default().fg(Color::LightCyan));
+        frame.render_widget(timer, top_bar[1]);
+    }
     let score = Paragraph::new(score_text).alignment(Alignment::Right);
-    frame.render_widget(score, top_bar[1]);
+    frame.render_widget(score, top_bar[2]);
 
     let glyph_row = Layout::default()
         .direction(Direction::Horizontal)
@@ -576,11 +610,23 @@ fn render_game_screen(frame: &mut Frame, app: &mut App) {
     frame.render_widget(feedback, layout[4]);
 
     let controls_text = if showing_feedback {
-        "Enter/Space: next  |  Esc: finish session"
+        if matches!(app.mode, GameMode::BestOf(_)) {
+            format!(
+                "Points: {}  |  Enter/Space: next  |  Esc: finish session",
+                app.best_of_points()
+            )
+        } else {
+            "Enter/Space: next  |  Esc: finish session".to_string()
+        }
+    } else if matches!(app.mode, GameMode::BestOf(_)) {
+        format!(
+            "Points: {}  |  Enter: evaluate  |  Backspace: delete  |  Esc: finish session",
+            app.best_of_points()
+        )
     } else {
-        "Enter: evaluate  |  Backspace: delete  |  Esc: finish session"
+        "Enter: evaluate  |  Backspace: delete  |  Esc: finish session".to_string()
     };
-    let controls = Paragraph::new(controls_text)
+    let controls = Paragraph::new(controls_text.as_str())
         .alignment(Alignment::Center)
         .style(Style::default().add_modifier(Modifier::DIM));
     frame.render_widget(controls, layout[5]);
@@ -732,6 +778,64 @@ fn render_progressive_game_screen(frame: &mut Frame, app: &mut App) {
 }
 
 fn render_finished(frame: &mut Frame, app: &App) {
+    if matches!(app.mode, GameMode::BestOf(_)) {
+        let total = app.correct + app.incorrect;
+        let rows = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Length(10), Constraint::Min(6)])
+            .split(frame.area());
+        let summary = format!(
+            "Session Finished\n\nMode: Best of 20\nCorrect: {}\nIncorrect: {}\nTotal: {}\nElapsed: {}\nPoints: {}\nAccuracy: {:.1}%\n",
+            app.correct,
+            app.incorrect,
+            total,
+            format_elapsed(app.session_elapsed_secs),
+            app.best_of_points(),
+            app.accuracy()
+        );
+        frame.render_widget(
+            Paragraph::new(summary).alignment(Alignment::Center).block(
+                Block::default()
+                    .title("Final Results")
+                    .borders(Borders::ALL),
+            ),
+            rows[0],
+        );
+
+        let mut leaderboard_lines = vec![
+            Line::from(Span::styled(
+                "Top Runs",
+                Style::default()
+                    .fg(Color::LightYellow)
+                    .add_modifier(Modifier::BOLD),
+            )),
+            Line::from(""),
+        ];
+        for (idx, entry) in app.scoreboard.entries.iter().take(10).enumerate() {
+            leaderboard_lines.push(Line::from(format!(
+                "{:>2}. {:>5} pts  {:>5}  C:{:>2} I:{:>2}",
+                idx + 1,
+                entry.points,
+                format_elapsed(entry.elapsed_secs),
+                entry.correct,
+                entry.incorrect
+            )));
+        }
+        if app.scoreboard.entries.is_empty() {
+            leaderboard_lines.push(Line::from("No runs yet."));
+        }
+        leaderboard_lines.push(Line::from(""));
+        leaderboard_lines.push(Line::from("Press Esc or Enter to exit."));
+
+        frame.render_widget(
+            Paragraph::new(leaderboard_lines)
+                .alignment(Alignment::Left)
+                .block(Block::default().title("Scoreboard").borders(Borders::ALL)),
+            rows[1],
+        );
+        return;
+    }
+
     if matches!(app.mode, GameMode::Progressive) {
         let total = app.correct + app.incorrect;
         let hardest = app

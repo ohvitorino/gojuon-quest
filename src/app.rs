@@ -1,6 +1,8 @@
 use rand::seq::SliceRandom;
+use std::time::Instant;
 
 use crate::kana::{COLUMN_INDEX_GROUPS, COLUMN_LABELS, HIRAGANA_BASIC_46};
+use crate::scoreboard::ScoreBoard;
 
 pub(crate) enum GameMode {
     Infinite,
@@ -47,6 +49,10 @@ pub(crate) struct App {
     pub(crate) column_correct: [u32; 10],
     pub(crate) questions_to_unlock: [Option<u32>; 10],
     pub(crate) newly_unlocked_column: Option<usize>,
+    pub(crate) session_started_at: Option<Instant>,
+    pub(crate) session_elapsed_secs: u64,
+    pub(crate) scoreboard: ScoreBoard,
+    pub(crate) recorded_score_for_session: bool,
 }
 
 impl App {
@@ -76,6 +82,10 @@ impl App {
             column_correct: [0; 10],
             questions_to_unlock: [None; 10],
             newly_unlocked_column: None,
+            session_started_at: None,
+            session_elapsed_secs: 0,
+            scoreboard: ScoreBoard::default(),
+            recorded_score_for_session: false,
         }
     }
 
@@ -151,6 +161,7 @@ impl App {
         self.input.clear();
 
         if self.reached_mode_limit() {
+            self.update_session_timer();
             self.state = AppState::Finished;
             return;
         }
@@ -243,6 +254,9 @@ impl App {
         self.column_correct = [0; 10];
         self.questions_to_unlock = [None; 10];
         self.newly_unlocked_column = None;
+        self.session_started_at = None;
+        self.session_elapsed_secs = 0;
+        self.recorded_score_for_session = false;
         self.refill_deck();
         if self.deck.is_empty() {
             self.state = AppState::Menu;
@@ -257,8 +271,18 @@ impl App {
         self.input.clear();
         self.correct = 0;
         self.incorrect = 0;
+        self.streak = 0;
+        self.max_streak = 0;
+        self.column_attempts = [0; 10];
+        self.column_correct = [0; 10];
+        self.session_started_at = None;
+        self.session_elapsed_secs = 0;
+        self.recorded_score_for_session = false;
         self.last_feedback = None;
         self.last_correct = None;
+        if matches!(self.mode, GameMode::BestOf(_)) {
+            self.session_started_at = Some(Instant::now());
+        }
         self.refill_deck();
         if self.deck.is_empty() {
             self.options_feedback = Some("Enable at least one column to start".to_string());
@@ -276,6 +300,25 @@ impl App {
         }
 
         (self.correct as f64 / total as f64) * 100.0
+    }
+
+    pub(crate) fn update_session_timer(&mut self) {
+        if !matches!(self.mode, GameMode::BestOf(_)) {
+            return;
+        }
+        if !matches!(self.state, AppState::InProgress | AppState::ShowingFeedback) {
+            return;
+        }
+        let Some(started_at) = self.session_started_at else {
+            return;
+        };
+        self.session_elapsed_secs = started_at.elapsed().as_secs();
+    }
+
+    pub(crate) fn best_of_points(&self) -> i64 {
+        (self.correct as i64 * 100)
+            - (self.incorrect as i64 * 25)
+            - (self.session_elapsed_secs as i64)
     }
 
     pub(crate) fn column_of(&self, index: usize) -> usize {
@@ -633,9 +676,13 @@ mod tests {
         let mut app = App::new();
         app.correct = 10;
         app.incorrect = 5;
+        app.streak = 3;
+        app.max_streak = 8;
         app.start_selected_mode();
         assert_eq!(app.correct, 0);
         assert_eq!(app.incorrect, 0);
+        assert_eq!(app.streak, 0);
+        assert_eq!(app.max_streak, 0);
         assert!(app.input.is_empty());
         assert!(matches!(app.state, AppState::InProgress));
         assert!(!app.deck.is_empty());
@@ -657,5 +704,33 @@ mod tests {
         assert_eq!(app.progressive_unlocked_columns, 1);
         assert!(matches!(app.state, AppState::InProgress));
         assert!(app.current_index < 5);
+    }
+
+    #[test]
+    fn start_selected_mode_best_of_starts_session_timer() {
+        let mut app = App::new();
+        app.mode = GameMode::BestOf(20);
+        app.start_selected_mode();
+        assert!(app.session_started_at.is_some());
+    }
+
+    #[test]
+    fn best_of_points_uses_weighted_formula() {
+        let mut app = App::new();
+        app.correct = 15;
+        app.incorrect = 5;
+        app.session_elapsed_secs = 42;
+        assert_eq!(app.best_of_points(), 1333);
+    }
+
+    #[test]
+    fn update_session_timer_does_not_tick_when_not_in_active_best_of_state() {
+        let mut app = App::new();
+        app.mode = GameMode::BestOf(20);
+        app.state = AppState::Finished;
+        app.session_started_at = Some(Instant::now());
+        app.session_elapsed_secs = 7;
+        app.update_session_timer();
+        assert_eq!(app.session_elapsed_secs, 7);
     }
 }

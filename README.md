@@ -19,10 +19,27 @@ This project is a Rust terminal quiz game focused on **hiragana recognition**.
 ## 🕹️ Game modes
 
 - ♾️ **Infinite**: endless practice
-- 🧪 **Best of 20**: fixed 20-question session
+- 🧪 **Best of 20**: fixed 20-question timed session with persistent leaderboard
 - 🧗 **Progressive**: unlock hiragana columns by mastering each one
 
 In progressive mode, each kana must be answered correctly multiple times before the next column unlocks.
+
+### Best of 20 scoring
+
+Best of 20 is a timed run. Your final score uses:
+
+`points = (correct * 100) - (incorrect * 25) - elapsed_seconds`
+
+The in-session UI shows live timer and points while you play.
+
+## 🏆 Persistent scoreboard
+
+Best of 20 results are saved automatically and restored on next launch.
+
+- Entries are anonymous (timestamp + stats)
+- Ranking order: higher points first, then faster time, then newer run
+- Keeps top 10 runs
+- Local storage path: `~/.gojuon-quest/scoreboard.json`
 
 ## 🗂️ Kana columns
 
@@ -48,8 +65,8 @@ For Infinite and Best of 20, you can choose which columns are active:
 ### Run in development
 
 ```bash
-git clone git@gitlab.com:ohvitorino/japanese.git
-cd japanese
+git clone git@github.com:ohvitorino/gojuon-quest.git
+cd gojuon-quest
 cargo run
 ```
 
