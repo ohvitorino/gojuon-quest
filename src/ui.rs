@@ -2,7 +2,7 @@ use std::sync::OnceLock;
 
 use fontdue::Font;
 use ratatui::Frame;
-use ratatui::layout::{Alignment, Constraint, Direction, Layout};
+use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::symbols::Marker;
 use ratatui::text::{Line, Span};
@@ -520,43 +520,169 @@ fn render_column_options(frame: &mut Frame, app: &App) {
     );
 }
 
+const STATS_SIDEBAR_WIDTH: u16 = 28;
+
+fn render_stats_sidebar(frame: &mut Frame, app: &App, area: Rect) {
+    match app.mode {
+        GameMode::Progressive => {
+            let parts = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([
+                    Constraint::Length(12),
+                    Constraint::Length(7),
+                    Constraint::Min(6),
+                ])
+                .split(area);
+
+            let column_lines: Vec<Line> = (0..COLUMN_LABELS.len())
+                .map(|column| {
+                    let total = (COLUMN_INDEX_GROUPS[column].len() * 3) as u32;
+                    let progress = app.column_progress(column);
+                    let text = if app.is_column_mastered(column) {
+                        format!("{} ✓", COLUMN_LABELS[column])
+                    } else if column == app.progressive_unlocked_columns.saturating_sub(1) {
+                        format!("{} {}/{}", COLUMN_LABELS[column], progress, total)
+                    } else if column < app.progressive_unlocked_columns {
+                        format!("{} ..", COLUMN_LABELS[column])
+                    } else {
+                        format!("{} ···", COLUMN_LABELS[column])
+                    };
+                    let style = if column == app.progressive_unlocked_columns.saturating_sub(1) {
+                        Style::default()
+                            .fg(Color::Yellow)
+                            .add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default().add_modifier(Modifier::DIM)
+                    };
+                    Line::from(Span::styled(text, style))
+                })
+                .collect();
+            frame.render_widget(
+                Paragraph::new(column_lines)
+                    .alignment(Alignment::Left)
+                    .block(
+                        Block::default()
+                            .borders(Borders::ALL)
+                            .title("Columns")
+                            .title_style(
+                                Style::default()
+                                    .fg(Color::LightCyan)
+                                    .add_modifier(Modifier::BOLD),
+                            ),
+                    ),
+                parts[0],
+            );
+
+            let active_column = app.progressive_unlocked_columns.saturating_sub(1);
+            let mastery_lines: Vec<Line> = COLUMN_INDEX_GROUPS[active_column]
+                .iter()
+                .map(|index| {
+                    let (kana, _) = HIRAGANA_BASIC_46[*index];
+                    let dots = (0..3)
+                        .map(|dot| {
+                            if dot < app.kana_correct_counts[*index].min(3) as usize {
+                                "●"
+                            } else {
+                                "○"
+                            }
+                        })
+                        .collect::<Vec<_>>()
+                        .join("");
+                    Line::from(format!("{kana} {dots}"))
+                })
+                .collect();
+            frame.render_widget(
+                Paragraph::new(mastery_lines)
+                    .alignment(Alignment::Left)
+                    .block(Block::default().borders(Borders::ALL).title("Mastery")),
+                parts[1],
+            );
+
+            let total = app.correct + app.incorrect;
+            let stats_text = vec![
+                Line::from(format!("Streak: {}", app.streak)),
+                Line::from(format!("Max: {}", app.max_streak)),
+                Line::from(format!("Accuracy: {:.1}%", app.accuracy())),
+                Line::from(format!("Total: {total}")),
+            ];
+            frame.render_widget(
+                Paragraph::new(stats_text)
+                    .alignment(Alignment::Left)
+                    .block(Block::default().borders(Borders::ALL).title("Stats")),
+                parts[2],
+            );
+        }
+        GameMode::BestOf(limit) => {
+            let answered = app.correct + app.incorrect;
+            let lines = vec![
+                Line::from(format!("Mode: Best of {limit}")),
+                Line::from(format!(
+                    "Time: {}",
+                    format_elapsed(app.session_elapsed_secs)
+                )),
+                Line::from(format!("Answered: {answered}/{limit}")),
+                Line::from(format!("Points: {}", app.best_of_points())),
+                Line::from(format!("Streak: {}", app.streak)),
+                Line::from(format!("Max: {}", app.max_streak)),
+                Line::from(format!("Accuracy: {:.1}%", app.accuracy())),
+            ];
+            frame.render_widget(
+                Paragraph::new(lines).alignment(Alignment::Left).block(
+                    Block::default()
+                        .borders(Borders::ALL)
+                        .title("Stats")
+                        .title_style(
+                            Style::default()
+                                .fg(Color::LightCyan)
+                                .add_modifier(Modifier::BOLD),
+                        ),
+                ),
+                area,
+            );
+        }
+        GameMode::Infinite => {
+            let lines = vec![
+                Line::from("Mode: Infinite"),
+                Line::from(format!("Correct: {}", app.correct)),
+                Line::from(format!("Incorrect: {}", app.incorrect)),
+                Line::from(format!("Streak: {}", app.streak)),
+                Line::from(format!("Max: {}", app.max_streak)),
+                Line::from(format!("Accuracy: {:.1}%", app.accuracy())),
+            ];
+            frame.render_widget(
+                Paragraph::new(lines).alignment(Alignment::Left).block(
+                    Block::default()
+                        .borders(Borders::ALL)
+                        .title("Stats")
+                        .title_style(
+                            Style::default()
+                                .fg(Color::LightCyan)
+                                .add_modifier(Modifier::BOLD),
+                        ),
+                ),
+                area,
+            );
+        }
+    }
+}
+
 fn render_game_screen(frame: &mut Frame, app: &mut App) {
     let showing_feedback = matches!(app.state, AppState::ShowingFeedback);
 
-    let layout = Layout::default()
+    let hsplit = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Min(0), Constraint::Length(STATS_SIDEBAR_WIDTH)])
+        .split(frame.area());
+    let main = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(1),
-            Constraint::Length(1),
             Constraint::Min(8),
             Constraint::Length(1),
             Constraint::Length(1),
             Constraint::Length(1),
         ])
-        .split(frame.area());
-
-    let top_bar = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Min(0),
-            Constraint::Length(14),
-            Constraint::Length(10),
-        ])
-        .split(layout[0]);
-
-    let score_text = match app.mode {
-        GameMode::Infinite => format!("{}/{}", app.correct, app.incorrect),
-        GameMode::BestOf(limit) => format!("{}/{}", app.correct + app.incorrect, limit),
-        GameMode::Progressive => format!("{}/{}", app.correct, app.incorrect),
-    };
-    if matches!(app.mode, GameMode::BestOf(_)) {
-        let timer = Paragraph::new(format!("t {}", format_elapsed(app.session_elapsed_secs)))
-            .alignment(Alignment::Right)
-            .style(Style::default().fg(Color::LightCyan));
-        frame.render_widget(timer, top_bar[1]);
-    }
-    let score = Paragraph::new(score_text).alignment(Alignment::Right);
-    frame.render_widget(score, top_bar[2]);
+        .split(hsplit[0]);
+    render_stats_sidebar(frame, app, hsplit[1]);
 
     let glyph_row = Layout::default()
         .direction(Direction::Horizontal)
@@ -565,7 +691,7 @@ fn render_game_screen(frame: &mut Frame, app: &mut App) {
             Constraint::Percentage(30),
             Constraint::Percentage(35),
         ])
-        .split(layout[2]);
+        .split(main[0]);
 
     let glyph_col = Layout::default()
         .direction(Direction::Vertical)
@@ -586,7 +712,7 @@ fn render_game_screen(frame: &mut Frame, app: &mut App) {
     }
 
     let answer = Paragraph::new(app.input.as_str()).alignment(Alignment::Center);
-    frame.render_widget(answer, layout[3]);
+    frame.render_widget(answer, main[1]);
 
     let feedback_color = match app.last_correct {
         Some(true) => Color::Green,
@@ -607,96 +733,35 @@ fn render_game_screen(frame: &mut Frame, app: &mut App) {
     let feedback = Paragraph::new(feedback_text)
         .alignment(Alignment::Center)
         .style(feedback_style);
-    frame.render_widget(feedback, layout[4]);
+    frame.render_widget(feedback, main[2]);
 
     let controls_text = if showing_feedback {
-        if matches!(app.mode, GameMode::BestOf(_)) {
-            format!(
-                "Points: {}  |  Enter/Space: next  |  Esc: finish session",
-                app.best_of_points()
-            )
-        } else {
-            "Enter/Space: next  |  Esc: finish session".to_string()
-        }
-    } else if matches!(app.mode, GameMode::BestOf(_)) {
-        format!(
-            "Points: {}  |  Enter: evaluate  |  Backspace: delete  |  Esc: finish session",
-            app.best_of_points()
-        )
+        "Enter/Space: next  |  Esc: finish session"
     } else {
-        "Enter: evaluate  |  Backspace: delete  |  Esc: finish session".to_string()
+        "Enter: evaluate  |  Backspace: delete  |  Esc: finish session"
     };
-    let controls = Paragraph::new(controls_text.as_str())
+    let controls = Paragraph::new(controls_text)
         .alignment(Alignment::Center)
         .style(Style::default().add_modifier(Modifier::DIM));
-    frame.render_widget(controls, layout[5]);
+    frame.render_widget(controls, main[3]);
 }
 
 fn render_progressive_game_screen(frame: &mut Frame, app: &mut App) {
     let showing_feedback = matches!(app.state, AppState::ShowingFeedback);
-    let layout = Layout::default()
+    let hsplit = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Min(0), Constraint::Length(STATS_SIDEBAR_WIDTH)])
+        .split(frame.area());
+    let main = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(1),
-            Constraint::Length(1),
             Constraint::Min(6),
             Constraint::Length(1),
             Constraint::Length(1),
             Constraint::Length(1),
         ])
-        .split(frame.area());
-
-    let progress_chunks = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints(vec![
-            Constraint::Ratio(1, COLUMN_LABELS.len() as u32);
-            COLUMN_LABELS.len()
-        ])
-        .split(layout[0]);
-    for (column, area) in progress_chunks.iter().enumerate() {
-        let total = (COLUMN_INDEX_GROUPS[column].len() * 3) as u32;
-        let progress = app.column_progress(column);
-        let text = if app.is_column_mastered(column) {
-            format!("{} ✓", COLUMN_LABELS[column])
-        } else if column == app.progressive_unlocked_columns.saturating_sub(1) {
-            format!("{} {}/{}", COLUMN_LABELS[column], progress, total)
-        } else if column < app.progressive_unlocked_columns {
-            format!("{} ..", COLUMN_LABELS[column])
-        } else {
-            format!("{} ···", COLUMN_LABELS[column])
-        };
-        let style = if column == app.progressive_unlocked_columns.saturating_sub(1) {
-            Style::default()
-                .fg(Color::Yellow)
-                .add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().add_modifier(Modifier::DIM)
-        };
-        frame.render_widget(Paragraph::new(text).style(style), *area);
-    }
-
-    let active_column = app.progressive_unlocked_columns.saturating_sub(1);
-    let mastery_line = COLUMN_INDEX_GROUPS[active_column]
-        .iter()
-        .map(|index| {
-            let (kana, _) = HIRAGANA_BASIC_46[*index];
-            let dots = (0..3)
-                .map(|dot| {
-                    if dot < app.kana_correct_counts[*index].min(3) as usize {
-                        '●'
-                    } else {
-                        '○'
-                    }
-                })
-                .collect::<String>();
-            format!("{kana}{dots}")
-        })
-        .collect::<Vec<_>>()
-        .join(" ");
-    frame.render_widget(
-        Paragraph::new(mastery_line).alignment(Alignment::Center),
-        layout[1],
-    );
+        .split(hsplit[0]);
+    render_stats_sidebar(frame, app, hsplit[1]);
 
     let glyph_row = Layout::default()
         .direction(Direction::Horizontal)
@@ -705,7 +770,7 @@ fn render_progressive_game_screen(frame: &mut Frame, app: &mut App) {
             Constraint::Percentage(30),
             Constraint::Percentage(35),
         ])
-        .split(layout[2]);
+        .split(main[0]);
     let glyph_col = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -725,7 +790,7 @@ fn render_progressive_game_screen(frame: &mut Frame, app: &mut App) {
 
     frame.render_widget(
         Paragraph::new(app.input.as_str()).alignment(Alignment::Center),
-        layout[3],
+        main[1],
     );
 
     let feedback_color = match app.last_correct {
@@ -748,32 +813,19 @@ fn render_progressive_game_screen(frame: &mut Frame, app: &mut App) {
         Paragraph::new(feedback_text)
             .alignment(Alignment::Center)
             .style(feedback_style),
-        layout[4],
+        main[2],
     );
 
-    let total = app.correct + app.incorrect;
-    let status_text = if showing_feedback {
-        format!(
-            "Streak: {}  Max: {}  |  Accuracy: {:.1}%  |  Total: {}  |  Enter/Space: next  Esc: finish session",
-            app.streak,
-            app.max_streak,
-            app.accuracy(),
-            total
-        )
+    let controls_text = if showing_feedback {
+        "Enter/Space: next  |  Esc: finish session"
     } else {
-        format!(
-            "Streak: {}  Max: {}  |  Accuracy: {:.1}%  |  Total: {}  |  Enter: evaluate  Backspace: delete  Esc: finish session",
-            app.streak,
-            app.max_streak,
-            app.accuracy(),
-            total
-        )
+        "Enter: evaluate  |  Backspace: delete  |  Esc: finish session"
     };
     frame.render_widget(
-        Paragraph::new(status_text)
+        Paragraph::new(controls_text)
             .alignment(Alignment::Center)
             .style(Style::default().add_modifier(Modifier::DIM)),
-        layout[5],
+        main[3],
     );
 }
 

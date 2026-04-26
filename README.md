@@ -30,7 +30,7 @@ Best of 20 is a timed run. Your final score uses:
 
 `points = (correct * 100) - (incorrect * 25) - elapsed_seconds`
 
-The in-session UI shows live timer and points while you play.
+The in-session UI shows live timer and points in a right-side vertical stats panel while you play.
 
 ## 🏆 Persistent scoreboard
 
