@@ -7,9 +7,9 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::symbols::Marker;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::canvas::{Canvas, Points};
-use ratatui::widgets::{Block, Borders, Paragraph};
+use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 
-use crate::app::{App, AppState, GameMode, RenderStyle};
+use crate::app::{App, AppState, GameMode, QuitPrompt, RenderStyle};
 use crate::kana::{COLUMN_INDEX_GROUPS, COLUMN_LABELS, HIRAGANA_BASIC_46};
 
 static PIXEL_FONT: OnceLock<Option<Font>> = OnceLock::new();
@@ -204,6 +204,46 @@ pub(crate) fn ui(frame: &mut Frame, app: &mut App) {
         AppState::ColumnUnlocked => render_column_unlocked(frame, app),
         AppState::Finished => render_finished(frame, app),
     }
+    if app.quit_prompt.is_some() {
+        render_quit_prompt_overlay(frame, app);
+    }
+}
+
+fn centered_popup(area: Rect, width: u16, height: u16) -> Rect {
+    let width = width.min(area.width);
+    let height = height.min(area.height);
+    let x = area.x + area.width.saturating_sub(width) / 2;
+    let y = area.y + area.height.saturating_sub(height) / 2;
+    Rect::new(x, y, width, height)
+}
+
+fn render_quit_prompt_overlay(frame: &mut Frame, app: &App) {
+    let Some(prompt) = app.quit_prompt else {
+        return;
+    };
+    let popup = centered_popup(frame.area(), 44, 7);
+    let (title, message) = match prompt {
+        QuitPrompt::ExitApplication => ("Confirm", "Quit application?"),
+        QuitPrompt::AbandonSession => ("Confirm", "Leave session and return to menu?"),
+    };
+    let lines = vec![
+        Line::from(message),
+        Line::from(""),
+        Line::from(Span::styled(
+            "Enter / Y: yes  ·  Esc / N: no",
+            Style::default().fg(Color::DarkGray),
+        )),
+    ];
+    frame.render_widget(Clear, popup);
+    frame.render_widget(
+        Paragraph::new(lines).alignment(Alignment::Center).block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(title)
+                .title_style(Style::default().add_modifier(Modifier::BOLD)),
+        ),
+        popup,
+    );
 }
 
 fn render_menu(frame: &mut Frame, app: &App) {
@@ -367,7 +407,7 @@ fn render_menu(frame: &mut Frame, app: &App) {
             Style::default().fg(Color::White),
         )),
         Line::from(Span::styled(
-            "Secondary: ←/→ or h/l on Render row  •  Esc to quit",
+            "Secondary: ←/→ or h/l on Render row  •  Esc to quit (confirm)",
             Style::default().fg(Color::DarkGray),
         )),
     ])
@@ -736,9 +776,9 @@ fn render_game_screen(frame: &mut Frame, app: &mut App) {
     frame.render_widget(feedback, main[2]);
 
     let controls_text = if showing_feedback {
-        "Enter/Space: next  |  Esc: finish session"
+        "Enter/Space: next  |  Esc: leave session (confirm)"
     } else {
-        "Enter: evaluate  |  Backspace: delete  |  Esc: finish session"
+        "Enter: evaluate  |  Backspace: delete  |  Esc: leave session (confirm)"
     };
     let controls = Paragraph::new(controls_text)
         .alignment(Alignment::Center)
@@ -817,9 +857,9 @@ fn render_progressive_game_screen(frame: &mut Frame, app: &mut App) {
     );
 
     let controls_text = if showing_feedback {
-        "Enter/Space: next  |  Esc: finish session"
+        "Enter/Space: next  |  Esc: leave session (confirm)"
     } else {
-        "Enter: evaluate  |  Backspace: delete  |  Esc: finish session"
+        "Enter: evaluate  |  Backspace: delete  |  Esc: leave session (confirm)"
     };
     frame.render_widget(
         Paragraph::new(controls_text)
@@ -877,7 +917,7 @@ fn render_finished(frame: &mut Frame, app: &App) {
             leaderboard_lines.push(Line::from("No runs yet."));
         }
         leaderboard_lines.push(Line::from(""));
-        leaderboard_lines.push(Line::from("Press Esc or Enter to exit."));
+        leaderboard_lines.push(Line::from("Enter: main menu  ·  Esc: quit app (confirm)"));
 
         frame.render_widget(
             Paragraph::new(leaderboard_lines)
@@ -909,7 +949,7 @@ fn render_finished(frame: &mut Frame, app: &App) {
             total as f64 / COLUMN_LABELS.len() as f64
         };
         let summary = format!(
-            "Session Finished\n\nMode: Progressive\nColumns mastered: {}/{}\nCorrect: {}\nIncorrect: {}\nTotal: {}\nAccuracy: {:.1}%\nBest streak: {}\nAvg questions per column: {:.1}\nHardest column: {}\n\nPress Esc or Enter to exit.",
+            "Session Finished\n\nMode: Progressive\nColumns mastered: {}/{}\nCorrect: {}\nIncorrect: {}\nTotal: {}\nAccuracy: {:.1}%\nBest streak: {}\nAvg questions per column: {:.1}\nHardest column: {}\n\nEnter: main menu  ·  Esc: quit app (confirm)",
             app.progressive_unlocked_columns.min(COLUMN_LABELS.len()),
             COLUMN_LABELS.len(),
             app.correct,
@@ -932,7 +972,7 @@ fn render_finished(frame: &mut Frame, app: &App) {
 
     let total = app.correct + app.incorrect;
     let summary = format!(
-        "Session Finished\n\nCorrect: {}\nIncorrect: {}\nTotal: {}\nAccuracy: {:.1}%\n\nPress Esc or Enter to exit.",
+        "Session Finished\n\nCorrect: {}\nIncorrect: {}\nTotal: {}\nAccuracy: {:.1}%\n\nEnter: main menu  ·  Esc: quit app (confirm)",
         app.correct,
         app.incorrect,
         total,
@@ -959,7 +999,7 @@ fn render_column_unlocked(frame: &mut Frame, app: &App) {
     let questions = app.correct + app.incorrect;
     let mastered = column;
     let body = format!(
-        "Column Unlocked!\n\n{}-row ({})\nadded to your deck\n\nColumns mastered: {} / {}\nQuestions so far: {}\nSession accuracy: {:.1}%\n\nPress Enter to continue",
+        "Column Unlocked!\n\n{}-row ({})\nadded to your deck\n\nColumns mastered: {} / {}\nQuestions so far: {}\nSession accuracy: {:.1}%\n\nEnter: continue  ·  Esc: leave session (confirm)",
         COLUMN_LABELS[column],
         kana,
         mastered,

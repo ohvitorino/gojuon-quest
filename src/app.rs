@@ -24,9 +24,16 @@ pub(crate) enum AppState {
     Finished,
 }
 
+#[derive(Clone, Copy)]
+pub(crate) enum QuitPrompt {
+    ExitApplication,
+    AbandonSession,
+}
+
 pub(crate) struct App {
     pub(crate) running: bool,
     pub(crate) state: AppState,
+    pub(crate) quit_prompt: Option<QuitPrompt>,
     pub(crate) mode: GameMode,
     pub(crate) render_style: RenderStyle,
     pub(crate) menu_selection: usize,
@@ -60,6 +67,7 @@ impl App {
         Self {
             running: true,
             state: AppState::Menu,
+            quit_prompt: None,
             mode: GameMode::Infinite,
             render_style: RenderStyle::Ascii,
             menu_selection: 0,
@@ -368,6 +376,7 @@ mod tests {
     fn new_app_defaults() {
         let app = App::new();
         assert!(app.running);
+        assert!(app.quit_prompt.is_none());
         assert!(matches!(app.state, AppState::Menu));
         assert!(matches!(app.mode, GameMode::Infinite));
         assert!(matches!(app.render_style, RenderStyle::Ascii));

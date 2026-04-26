@@ -1,11 +1,33 @@
 use crossterm::event::KeyCode;
 
-use crate::app::{App, AppState};
+use crate::app::{App, AppState, QuitPrompt};
 use crate::kana::COLUMN_LABELS;
+
+pub(crate) fn handle_quit_prompt_key(app: &mut App, code: KeyCode) {
+    let Some(prompt) = app.quit_prompt else {
+        return;
+    };
+    match code {
+        KeyCode::Enter | KeyCode::Char('y') | KeyCode::Char('Y') => match prompt {
+            QuitPrompt::ExitApplication => {
+                app.running = false;
+                app.quit_prompt = None;
+            }
+            QuitPrompt::AbandonSession => {
+                app.state = AppState::Menu;
+                app.quit_prompt = None;
+            }
+        },
+        KeyCode::Esc | KeyCode::Char('n') | KeyCode::Char('N') => {
+            app.quit_prompt = None;
+        }
+        _ => {}
+    }
+}
 
 pub(crate) fn handle_in_progress_key(app: &mut App, code: KeyCode) {
     match code {
-        KeyCode::Esc => app.state = AppState::Menu,
+        KeyCode::Esc => app.quit_prompt = Some(QuitPrompt::AbandonSession),
         KeyCode::Enter => app.evaluate_current_answer(),
         KeyCode::Backspace => {
             app.input.pop();
@@ -17,7 +39,7 @@ pub(crate) fn handle_in_progress_key(app: &mut App, code: KeyCode) {
 
 pub(crate) fn handle_showing_feedback_key(app: &mut App, code: KeyCode) {
     match code {
-        KeyCode::Esc => app.state = AppState::Menu,
+        KeyCode::Esc => app.quit_prompt = Some(QuitPrompt::AbandonSession),
         KeyCode::Enter | KeyCode::Char(' ') => {
             app.advance_prompt();
             app.last_feedback = None;
@@ -30,7 +52,7 @@ pub(crate) fn handle_showing_feedback_key(app: &mut App, code: KeyCode) {
 
 pub(crate) fn handle_menu_key(app: &mut App, code: KeyCode) {
     match code {
-        KeyCode::Esc => app.running = false,
+        KeyCode::Esc => app.quit_prompt = Some(QuitPrompt::ExitApplication),
         KeyCode::Up | KeyCode::Char('k') => {
             app.menu_selection = app.menu_selection.saturating_sub(1)
         }
@@ -92,7 +114,7 @@ pub(crate) fn handle_column_options_key(app: &mut App, code: KeyCode) {
 
 pub(crate) fn handle_finished_key(app: &mut App, code: KeyCode) {
     match code {
-        KeyCode::Esc => app.running = false,
+        KeyCode::Esc => app.quit_prompt = Some(QuitPrompt::ExitApplication),
         KeyCode::Enter => app.state = AppState::Menu,
         _ => {}
     }
@@ -100,7 +122,7 @@ pub(crate) fn handle_finished_key(app: &mut App, code: KeyCode) {
 
 pub(crate) fn handle_column_unlocked_key(app: &mut App, code: KeyCode) {
     match code {
-        KeyCode::Esc => app.state = AppState::Menu,
+        KeyCode::Esc => app.quit_prompt = Some(QuitPrompt::AbandonSession),
         KeyCode::Enter | KeyCode::Char(' ') => {
             app.newly_unlocked_column = None;
             app.advance_prompt();
@@ -117,14 +139,36 @@ mod tests {
     use crossterm::event::KeyCode;
 
     use super::*;
-    use crate::app::{App, AppState};
+    use crate::app::{App, AppState, QuitPrompt};
     use crate::kana::COLUMN_LABELS;
 
     #[test]
-    fn in_progress_esc_returns_to_menu() {
+    fn in_progress_esc_opens_abandon_prompt() {
         let mut app = App::new();
+        app.state = AppState::InProgress;
         handle_in_progress_key(&mut app, KeyCode::Esc);
+        assert!(matches!(app.quit_prompt, Some(QuitPrompt::AbandonSession)));
+        assert!(matches!(app.state, AppState::InProgress));
+    }
+
+    #[test]
+    fn in_progress_abandon_confirm_returns_to_menu() {
+        let mut app = App::new();
+        app.state = AppState::InProgress;
+        handle_in_progress_key(&mut app, KeyCode::Esc);
+        handle_quit_prompt_key(&mut app, KeyCode::Enter);
+        assert!(app.quit_prompt.is_none());
         assert!(matches!(app.state, AppState::Menu));
+    }
+
+    #[test]
+    fn in_progress_abandon_cancel_clears_prompt() {
+        let mut app = App::new();
+        app.state = AppState::InProgress;
+        handle_in_progress_key(&mut app, KeyCode::Esc);
+        handle_quit_prompt_key(&mut app, KeyCode::Esc);
+        assert!(app.quit_prompt.is_none());
+        assert!(matches!(app.state, AppState::InProgress));
     }
 
     #[test]
@@ -160,10 +204,12 @@ mod tests {
     }
 
     #[test]
-    fn showing_feedback_esc_returns_to_menu() {
+    fn showing_feedback_esc_opens_abandon_prompt() {
         let mut app = App::new();
+        app.state = AppState::ShowingFeedback;
         handle_showing_feedback_key(&mut app, KeyCode::Esc);
-        assert!(matches!(app.state, AppState::Menu));
+        assert!(matches!(app.quit_prompt, Some(QuitPrompt::AbandonSession)));
+        assert!(matches!(app.state, AppState::ShowingFeedback));
     }
 
     #[test]
@@ -189,10 +235,37 @@ mod tests {
     }
 
     #[test]
-    fn menu_esc_stops_running() {
+    fn menu_esc_opens_exit_prompt() {
         let mut app = App::new();
         handle_menu_key(&mut app, KeyCode::Esc);
+        assert!(matches!(app.quit_prompt, Some(QuitPrompt::ExitApplication)));
+        assert!(app.running);
+    }
+
+    #[test]
+    fn menu_exit_confirm_stops_running() {
+        let mut app = App::new();
+        handle_menu_key(&mut app, KeyCode::Esc);
+        handle_quit_prompt_key(&mut app, KeyCode::Enter);
         assert!(!app.running);
+        assert!(app.quit_prompt.is_none());
+    }
+
+    #[test]
+    fn menu_exit_confirm_y_stops_running() {
+        let mut app = App::new();
+        handle_menu_key(&mut app, KeyCode::Esc);
+        handle_quit_prompt_key(&mut app, KeyCode::Char('y'));
+        assert!(!app.running);
+    }
+
+    #[test]
+    fn menu_exit_cancel_clears_prompt() {
+        let mut app = App::new();
+        handle_menu_key(&mut app, KeyCode::Esc);
+        handle_quit_prompt_key(&mut app, KeyCode::Char('n'));
+        assert!(app.running);
+        assert!(app.quit_prompt.is_none());
     }
 
     #[test]
@@ -340,9 +413,20 @@ mod tests {
     }
 
     #[test]
-    fn finished_esc_stops_running() {
+    fn finished_esc_opens_exit_prompt() {
         let mut app = App::new();
+        app.state = AppState::Finished;
         handle_finished_key(&mut app, KeyCode::Esc);
+        assert!(matches!(app.quit_prompt, Some(QuitPrompt::ExitApplication)));
+        assert!(app.running);
+    }
+
+    #[test]
+    fn finished_exit_confirm_stops_running() {
+        let mut app = App::new();
+        app.state = AppState::Finished;
+        handle_finished_key(&mut app, KeyCode::Esc);
+        handle_quit_prompt_key(&mut app, KeyCode::Enter);
         assert!(!app.running);
     }
 
@@ -356,10 +440,12 @@ mod tests {
     }
 
     #[test]
-    fn column_unlocked_esc_returns_to_menu() {
+    fn column_unlocked_esc_opens_abandon_prompt() {
         let mut app = App::new();
+        app.state = AppState::ColumnUnlocked;
         handle_column_unlocked_key(&mut app, KeyCode::Esc);
-        assert!(matches!(app.state, AppState::Menu));
+        assert!(matches!(app.quit_prompt, Some(QuitPrompt::AbandonSession)));
+        assert!(matches!(app.state, AppState::ColumnUnlocked));
     }
 
     #[test]
