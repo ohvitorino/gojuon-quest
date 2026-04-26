@@ -190,7 +190,7 @@ fn render_hiragana_ascii_art(frame: &mut Frame, hiragana: &str, area: ratatui::l
     frame.render_widget(art, area);
 }
 
-pub(crate) fn ui(frame: &mut Frame, app: &mut App) {
+pub(crate) fn ui(frame: &mut Frame, app: &App) {
     match app.state {
         AppState::Menu => render_menu(frame, app),
         AppState::ColumnOptions => render_column_options(frame, app),
@@ -706,7 +706,7 @@ fn render_stats_sidebar(frame: &mut Frame, app: &App, area: Rect) {
     }
 }
 
-fn render_game_screen(frame: &mut Frame, app: &mut App) {
+fn render_game_screen(frame: &mut Frame, app: &App) {
     let showing_feedback = matches!(app.state, AppState::ShowingFeedback);
 
     let hsplit = Layout::default()
@@ -786,7 +786,7 @@ fn render_game_screen(frame: &mut Frame, app: &mut App) {
     frame.render_widget(controls, main[3]);
 }
 
-fn render_progressive_game_screen(frame: &mut Frame, app: &mut App) {
+fn render_progressive_game_screen(frame: &mut Frame, app: &App) {
     let showing_feedback = matches!(app.state, AppState::ShowingFeedback);
     let hsplit = Layout::default()
         .direction(Direction::Horizontal)

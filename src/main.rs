@@ -8,7 +8,7 @@ use std::io;
 use std::time::Duration;
 
 use anyhow::Result;
-use app::{App, AppState, GameMode};
+use app::{App, AppState};
 use crossterm::event::{self, Event, KeyEventKind};
 use crossterm::execute;
 use crossterm::terminal::{
@@ -19,7 +19,7 @@ use input::{
     handle_in_progress_key, handle_menu_key, handle_quit_prompt_key, handle_showing_feedback_key,
 };
 use ratatui::Terminal;
-use scoreboard::{ScoreBoard, ScoreEntry};
+use scoreboard::ScoreBoard;
 
 fn main() -> Result<()> {
     enable_raw_mode()?;
@@ -43,7 +43,7 @@ fn run_app(terminal: &mut Terminal<ratatui::backend::CrosstermBackend<io::Stdout
 
     while app.running {
         app.update_session_timer();
-        terminal.draw(|frame| ui::ui(frame, &mut app))?;
+        terminal.draw(|frame| ui::ui(frame, &app))?;
 
         if !event::poll(Duration::from_millis(200))? {
             continue;
@@ -68,21 +68,6 @@ fn run_app(terminal: &mut Terminal<ratatui::backend::CrosstermBackend<io::Stdout
                 AppState::ColumnUnlocked => handle_column_unlocked_key(&mut app, key.code),
                 AppState::Finished => handle_finished_key(&mut app, key.code),
             }
-        }
-
-        if matches!(app.mode, GameMode::BestOf(_))
-            && matches!(app.state, AppState::Finished)
-            && !app.recorded_score_for_session
-        {
-            app.update_session_timer();
-            app.scoreboard.add_entry(ScoreEntry::now(
-                app.correct,
-                app.incorrect,
-                app.session_elapsed_secs,
-                app.best_of_points(),
-            ));
-            let _ = app.scoreboard.save();
-            app.recorded_score_for_session = true;
         }
     }
 

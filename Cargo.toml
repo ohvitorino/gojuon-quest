@@ -3,6 +3,9 @@ name = "gojuon-quest"
 version = "0.1.0"
 edition = "2024"
 
+[workspace]
+members = ["crates/core"]
+
 [dependencies]
 anyhow = "1"
 crossterm = "0.29"
@@ -11,3 +14,4 @@ rand = "0.9"
 fontdue = "0.9.3"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+gojuon-core = { path = "crates/core" }

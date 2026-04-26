@@ -11,6 +11,11 @@ Type the romaji for each kana, build streaks, and climb toward mastery one colum
 
 This project is a Rust terminal quiz game focused on **hiragana recognition**.
 
+The repository now uses a workspace with a shared domain crate:
+
+- `gojuon-core`: framework-agnostic game rules/state transitions
+- `gojuon-quest` (this TUI app): terminal adapter (input, rendering, persistence)
+
 - 🧠 **Kana prompt + romaji answer**: see a hiragana character, type its romaji
 - 🎯 **Practice-first flow**: instant right/wrong feedback after each answer
 - 📊 **Stats you can track**: accuracy, streak, max streak, and weakest column
@@ -70,12 +75,33 @@ cd gojuon-quest
 cargo run
 ```
 
+### Build shared core only
+
+```bash
+cargo test -p gojuon-core
+```
+
 ### Build and run release binary
 
 ```bash
 cargo build --release
 ./target/release/gojuon-quest
 ```
+
+## 🔌 Adapter contract (for future web frontend)
+
+`gojuon-core` exposes the reusable business layer:
+
+- State: `gojuon_core::state::GameState`
+- Actions: `gojuon_core::actions::CoreAction`
+- Reducer: `gojuon_core::reducer::reduce`
+- Effects: `gojuon_core::actions::CoreEffect` (for side-effects like score persistence)
+
+A frontend adapter should:
+
+1. Map platform input events to `CoreAction`
+2. Apply actions through `reduce` on a `GameState`
+3. Execute emitted `CoreEffect` in platform-specific code (filesystem, browser storage, APIs)
 
 ## ⌨️ Controls
 

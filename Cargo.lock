@@ -223,12 +223,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "gojuon-core"
+version = "0.1.0"
+dependencies = [
+ "rand",
+ "serde",
+]
+
+[[package]]
 name = "gojuon-quest"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "crossterm 0.29.0",
  "fontdue",
+ "gojuon-core",
  "rand",
  "ratatui",
  "serde",
